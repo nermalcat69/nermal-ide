@@ -156,7 +156,7 @@ system-configuration-sys = { version = "0.6", optional = true }
 # against a random token it writes into the user-private port file. `getrandom`
 # is the OS CSPRNG that mints that token.
 [target.'cfg(windows)'.dependencies]
-getrandom = "0.3"
+getrandom = "0.4"
 
 # Toolhelp process enumeration + `TerminateProcess`, used by `daemon::winproc` to
 # title a pane by its foreground command and to tear down a shell's descendant
