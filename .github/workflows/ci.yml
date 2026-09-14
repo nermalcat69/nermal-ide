@@ -37,7 +37,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
@@ -59,7 +59,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: bash .github/scripts/check-host-boundary.sh
 
   build:
@@ -81,7 +81,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Checkout nermal
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # gpui-component is a git dependency (see Cargo.toml), so no sibling
       # checkout is needed. The Windows backend (gpui_windows + DirectWrite/D3D)
@@ -184,7 +184,7 @@ jobs:
     env:
       RUSTFLAGS: -C strip=symbols
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -274,7 +274,7 @@ jobs:
     env:
       RUSTFLAGS: -C strip=symbols
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@stable
         with:
