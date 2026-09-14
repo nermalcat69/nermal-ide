@@ -42,7 +42,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout nermal
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           path: nermal
 
@@ -211,7 +211,7 @@ jobs:
       RUSTFLAGS: -C strip=symbols
     steps:
       - name: Checkout nermal
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           path: nermal
 
@@ -312,7 +312,7 @@ jobs:
       RUSTFLAGS: -C strip=symbols
     steps:
       - name: Checkout nermal
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           path: nermal
 
