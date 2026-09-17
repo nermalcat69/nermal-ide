@@ -5408,7 +5408,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "unicode-width",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5441,7 +5441,7 @@ dependencies = [
  "toml_edit 0.25.13+spec-1.1.0",
  "ureq",
  "uuid",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
  "winreg 0.52.0",
 ]
 
@@ -7754,7 +7754,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.4.15",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -7846,7 +7846,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs 0.26.11",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
