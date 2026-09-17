@@ -630,7 +630,7 @@ impl Default for Config {
             sidebar_collapsed: false,
             right_panel_visible: false,
             right_panel_width: default_right_panel_width(),
-            right_panel_tab: RightPanelTab::Info,
+            right_panel_tab: RightPanelTab::Agents,
             diff_view: DiffViewMode::Split,
             document_layout: DocumentLayout::default(),
             document_ratio: default_document_ratio(),
@@ -1104,6 +1104,10 @@ pub enum RightPanelTab {
     #[serde(rename = "changes", alias = "scm", alias = "git")]
     Scm,
     Files,
+    /// Running CLI coding agents (Claude, Codex, ...) across this workspace's
+    /// panes, one row per agent terminal. An older build that reads this back
+    /// falls through `de_lenient` to `Info` rather than failing outright.
+    Agents,
 }
 
 /// What opens when a file link in the grid is clicked.

@@ -1,16 +1,73 @@
 use std::time::Duration;
 
 use gpui::{
-    Animation, AnimationExt as _, App, Context, KeyDownEvent, Keystroke, MouseButton,
-    MouseDownEvent, div, prelude::*, px,
+    Animation, AnimationExt as _, App, Context, Keystroke, MouseButton, Window, div, prelude::*, px,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::kbd::Kbd;
 use gpui_component::{ActiveTheme as _, IconName, Sizable as _, h_flex, v_flex};
 
-use crate::core::session::{SessionPane, SessionTab};
+use crate::core::session::WorkspaceStore;
 use crate::ui::app::NermalApp;
-use crate::ui::i18n::{L10nKey, t, t_fmt, t_plural};
+use crate::ui::i18n::{L10nKey, t, t_plural};
+
+/// What the empty-window screen offers. Each is a real click target — there
+/// is no "click anywhere on the page" fallback, so nothing gets created by
+/// accident (a stray click used to open a bare, folder-less tab) — and this
+/// is the whole list: no "New Tab" (a folder-less shell is not the point of
+/// this screen) and no "Switch Workspace" (the recent-workspaces column does
+/// that job directly, one click instead of two).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum HomeAction {
+    CreateWorkspace,
+    OpenFile,
+    CommandPalette,
+    Settings,
+}
+
+impl HomeAction {
+    const ALL: [HomeAction; 4] = [
+        HomeAction::CreateWorkspace,
+        HomeAction::OpenFile,
+        HomeAction::CommandPalette,
+        HomeAction::Settings,
+    ];
+
+    fn id(self) -> &'static str {
+        match self {
+            HomeAction::CreateWorkspace => "home-action-create-workspace",
+            HomeAction::OpenFile => "home-action-open-file",
+            HomeAction::CommandPalette => "home-action-command-palette",
+            HomeAction::Settings => "home-action-settings",
+        }
+    }
+
+    fn keymap_action(self) -> Option<&'static str> {
+        match self {
+            HomeAction::CreateWorkspace | HomeAction::OpenFile => None,
+            HomeAction::CommandPalette => Some("TogglePalette"),
+            HomeAction::Settings => Some("OpenSettings"),
+        }
+    }
+
+    fn label(self) -> String {
+        match self {
+            HomeAction::CreateWorkspace => t(L10nKey::HomeCreateWorkspace).to_string(),
+            HomeAction::OpenFile => t(L10nKey::HomeOpenFile).to_string(),
+            HomeAction::CommandPalette => t(L10nKey::HomeCommandPalette).to_string(),
+            HomeAction::Settings => t(L10nKey::HomeSettings).to_string(),
+        }
+    }
+
+    fn run(self, this: &mut NermalApp, window: &mut Window, cx: &mut Context<NermalApp>) {
+        match self {
+            HomeAction::CreateWorkspace => this.home_open_folder(window, cx),
+            HomeAction::OpenFile => this.home_open_file(window, cx),
+            HomeAction::CommandPalette => this.toggle_palette(window, cx),
+            HomeAction::Settings => this.toggle_settings(window, cx),
+        }
+    }
+}
 
 const LOGO: [&str; 4] = [
     " ▄▄▄ ▄▄▄ ▄  ▄ ▄▄▄▄",
@@ -20,48 +77,6 @@ const LOGO: [&str; 4] = [
 ];
 
 const LOGO_PX: f32 = 20.0;
-
-/// What a window with no tabs open can actually do. `SplitRight`/`SplitDown`
-/// were listed here too, but both need a pane to split and return without a
-/// word when there is none — the home page was advertising two chords that do
-/// nothing from the only screen that offers them. `ReopenClosedTab` earns its
-/// row only while something is on the closed stack.
-const HOME_SHORTCUTS: [&str; 5] = [
-    "NewTab",
-    "ReopenClosedTab",
-    "ToggleSwitcher",
-    "TogglePalette",
-    "OpenSettings",
-];
-
-const CLOSED_LABEL_MAX: usize = 20;
-
-fn closed_tab_label(tab: &SessionTab) -> Option<String> {
-    if let Some(name) = tab.name.as_ref() {
-        let name = name.trim();
-        if !name.is_empty() {
-            return Some(clamp_label(name));
-        }
-    }
-    first_leaf_cwd(&tab.pane)
-        .and_then(|p| p.file_name())
-        .map(|s| clamp_label(&s.to_string_lossy()))
-}
-
-fn first_leaf_cwd(pane: &SessionPane) -> Option<&std::path::PathBuf> {
-    match pane {
-        SessionPane::Leaf { cwd, .. } => cwd.as_ref(),
-        SessionPane::Split { a, b, .. } => first_leaf_cwd(a).or_else(|| first_leaf_cwd(b)),
-    }
-}
-
-fn clamp_label(s: &str) -> String {
-    if s.chars().count() > CLOSED_LABEL_MAX {
-        format!("{}…", s.chars().take(CLOSED_LABEL_MAX).collect::<String>())
-    } else {
-        s.to_string()
-    }
-}
 
 pub(crate) const PICKER_PATH_MAX: usize = 34;
 
@@ -156,26 +171,60 @@ pub(crate) fn key_hint(action: &str, cx: &App) -> Option<String> {
     Some(Kbd::format(&key_stroke(action, cx)?))
 }
 
-fn home_shortcut_label(action: &str, closed: Option<&str>) -> String {
-    let label = match action {
-        "NewTab" => crate::ui::i18n::t(crate::ui::i18n::L10nKey::HomeNewTab),
-        "ReopenClosedTab" => crate::ui::i18n::t(crate::ui::i18n::L10nKey::HomeReopenClosedTab),
-        "ToggleSwitcher" => crate::ui::i18n::t(crate::ui::i18n::L10nKey::HomeSwitchWorkspace),
-        "TogglePalette" => crate::ui::i18n::t(crate::ui::i18n::L10nKey::HomeCommandPalette),
-        "SplitRight" => crate::ui::i18n::t(crate::ui::i18n::L10nKey::HomeSplitRight),
-        "SplitDown" => crate::ui::i18n::t(crate::ui::i18n::L10nKey::HomeSplitDown),
-        "OpenSettings" => crate::ui::i18n::t(crate::ui::i18n::L10nKey::HomeSettings),
-        _ => action,
-    };
-    if action == "ReopenClosedTab" {
-        if let Some(name) = closed {
-            return t_fmt(L10nKey::HomeReopenNamed, &[("name", name)]);
-        }
-    }
-    label.to_string()
-}
-
 impl NermalApp {
+    /// Opens the native folder picker, then creates a fresh workspace rooted
+    /// there — the folder is what makes it a project rather than the bare
+    /// shell `new_tab` opens. Mirrors `switcher.rs::switcher_form_pick_folder`
+    /// and its create-flow, for the same action reached from the home page
+    /// instead of the "+ New Workspace" form.
+    fn home_open_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let rx = cx.prompt_for_paths(gpui::PathPromptOptions {
+            files: false,
+            directories: true,
+            multiple: false,
+            prompt: None,
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            let Ok(Ok(Some(mut paths))) = rx.await else {
+                return;
+            };
+            let Some(folder) = paths.pop() else {
+                return;
+            };
+            let _ = this.update_in(cx, |this, window, cx| {
+                this.switch_workspace(None, window, cx);
+                this.new_tab_with_cwd(Some(folder), None, window, cx);
+            });
+        })
+        .detach();
+    }
+
+    /// Opens the native file picker, then opens the file in the built-in
+    /// editor — a tab rooted at its parent directory hosts it, since the
+    /// editor only opens against an existing tab.
+    fn home_open_file(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let rx = cx.prompt_for_paths(gpui::PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: None,
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            let Ok(Ok(Some(mut paths))) = rx.await else {
+                return;
+            };
+            let Some(file) = paths.pop() else {
+                return;
+            };
+            let _ = this.update_in(cx, |this, window, cx| {
+                let parent = file.parent().map(|p| p.to_path_buf());
+                this.new_tab_with_cwd(parent, None, window, cx);
+                this.open_file_in_editor(&file, window, cx);
+            });
+        })
+        .detach();
+    }
+
     pub(crate) fn render_home(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let theme = cx.theme();
         let (muted, foreground, accent) = (theme.muted_foreground, theme.foreground, theme.primary);
@@ -201,25 +250,81 @@ impl NermalApp {
             ),
         );
 
-        let closed_hint = self.closed.last().and_then(closed_tab_label);
-        let nothing_to_reopen = self.closed.is_empty();
-        let mut list = v_flex().gap_2().w(px(300.)).text_sm().text_color(muted);
-        for action in HOME_SHORTCUTS {
-            if action == "ReopenClosedTab" && nothing_to_reopen {
-                continue;
-            }
-            let emphasized = closed_hint.is_some() && action == "ReopenClosedTab";
-            let label = home_shortcut_label(action, closed_hint.as_deref());
-            list = list.child(
+        // Two columns: recent workspaces on the left (this is the whole
+        // reason "Switch Workspace" does not need its own button any more —
+        // a recent row *is* that action), the fixed set of things this page
+        // can do on the right.
+        let now = now_secs();
+        let mut recents: Vec<(crate::core::session::WorkspaceId, String, u64)> =
+            WorkspaceStore::all(cx)
+                .views
+                .iter()
+                .filter(|w| w.id != self.workspace)
+                .map(|w| {
+                    let name = crate::ui::machine_mirror::display_name_for(cx, w.id)
+                        .unwrap_or_else(|| t(L10nKey::HomeUntitledWorkspace).to_string());
+                    (w.id, name, w.last_active)
+                })
+                .collect();
+        recents.sort_by(|a, b| b.2.cmp(&a.2));
+
+        let mut recent_column = v_flex().w(px(260.)).gap_2().child(
+            div()
+                .text_xs()
+                .text_color(muted)
+                .child(t(L10nKey::HomeRecentWorkspaces)),
+        );
+        if recents.is_empty() {
+            recent_column = recent_column.child(
+                div()
+                    .text_sm()
+                    .text_color(muted)
+                    .child(t(L10nKey::HomeNoRecentWorkspaces)),
+            );
+        }
+        for (id, name, last_active) in recents {
+            let when = relative_time(now, last_active);
+            recent_column = recent_column.child(
                 h_flex()
+                    .id(("home-recent-workspace", id.element_key()))
+                    .cursor_pointer()
                     .items_center()
                     .justify_between()
-                    .when(emphasized, |row| row.text_color(foreground))
-                    .child(label)
-                    .children(
-                        key_hint(action, cx)
-                            .map(|keys| div().font_family(self.font_family.clone()).child(keys)),
+                    .gap_2()
+                    .text_sm()
+                    .text_color(muted)
+                    .hover(|row| row.text_color(foreground))
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.reveal_workspace(id, window, cx);
+                    }))
+                    .child(div().truncate().child(name))
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .text_xs()
+                            .text_color(muted.opacity(0.75))
+                            .child(when),
                     ),
+            );
+        }
+
+        let mut action_column = v_flex().gap_2().w(px(260.)).text_sm().text_color(muted);
+        for action in HomeAction::ALL {
+            let label = action.label();
+            let keys = action
+                .keymap_action()
+                .and_then(|a| key_hint(a, cx))
+                .map(|keys| div().font_family(self.font_family.clone()).child(keys));
+            action_column = action_column.child(
+                h_flex()
+                    .id(action.id())
+                    .cursor_pointer()
+                    .items_center()
+                    .justify_between()
+                    .hover(|row| row.text_color(foreground))
+                    .on_click(cx.listener(move |this, _, window, cx| action.run(this, window, cx)))
+                    .child(label)
+                    .children(keys),
             );
         }
 
@@ -240,19 +345,16 @@ impl NermalApp {
             .items_center()
             .justify_center()
             .gap(px(48.))
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _: &MouseDownEvent, window, cx| this.new_tab(window, cx)),
-            )
-            .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
-                if ev.keystroke.key == "enter" && !ev.keystroke.modifiers.modified() {
-                    this.new_tab(window, cx);
-                }
-            }))
             .child(logo)
             .children(failure)
             .children(status)
-            .child(list)
+            .child(
+                h_flex()
+                    .items_start()
+                    .gap(px(64.))
+                    .child(recent_column)
+                    .child(action_column),
+            )
             .with_animation(
                 "home-fade-in",
                 Animation::new(Duration::from_millis(crate::ui::tab_strip::TRANSITION_MS))
@@ -456,96 +558,6 @@ mod strip_layout_tests {
 mod tests {
     use super::*;
     use crate::ui::i18n::set_locale;
-    use std::path::PathBuf;
-
-    fn leaf(cwd: Option<&str>) -> SessionPane {
-        SessionPane::Leaf {
-            shell: None,
-            cwd: cwd.map(PathBuf::from),
-            pane_id: None,
-            ssh_spec: None,
-            agent: None,
-            agent_session_id: None,
-            agent_launch_argv: None,
-        }
-    }
-
-    #[test]
-    fn closed_tab_label_prefers_the_user_set_name() {
-        let tab = SessionTab {
-            name: Some("build".into()),
-            tree_id: None,
-            sidebar_group: None,
-            pane: leaf(Some("/work/getty")),
-        };
-        assert_eq!(closed_tab_label(&tab).as_deref(), Some("build"));
-    }
-
-    #[test]
-    fn closed_tab_label_falls_back_to_the_first_leaf_cwd_dir_name() {
-        let tab = SessionTab {
-            name: None,
-            tree_id: None,
-            sidebar_group: None,
-            pane: leaf(Some("/work/getty")),
-        };
-        assert_eq!(closed_tab_label(&tab).as_deref(), Some("getty"));
-
-        let tab = SessionTab {
-            name: Some("   ".into()),
-            tree_id: None,
-            sidebar_group: None,
-            pane: leaf(Some("/work/getty")),
-        };
-        assert_eq!(closed_tab_label(&tab).as_deref(), Some("getty"));
-    }
-
-    #[test]
-    fn closed_tab_label_searches_splits_for_the_first_cwd() {
-        let tab = SessionTab {
-            name: None,
-            tree_id: None,
-            sidebar_group: None,
-            pane: SessionPane::Split {
-                axis: crate::core::session::SessionAxis::Horizontal,
-                ratio: 0.5,
-                a: Box::new(leaf(None)),
-                b: Box::new(leaf(Some("/tmp/demo"))),
-            },
-        };
-        assert_eq!(closed_tab_label(&tab).as_deref(), Some("demo"));
-    }
-
-    #[test]
-    fn closed_tab_label_is_none_when_nothing_is_known() {
-        let unnamed = SessionTab {
-            name: None,
-            tree_id: None,
-            sidebar_group: None,
-            pane: leaf(None),
-        };
-        assert_eq!(closed_tab_label(&unnamed), None);
-        let root = SessionTab {
-            name: None,
-            tree_id: None,
-            sidebar_group: None,
-            pane: leaf(Some("/")),
-        };
-        assert_eq!(closed_tab_label(&root), None);
-    }
-
-    #[test]
-    fn closed_tab_label_clamps_runaway_names() {
-        let tab = SessionTab {
-            name: Some("a".repeat(40)),
-            tree_id: None,
-            sidebar_group: None,
-            pane: leaf(None),
-        };
-        let label = closed_tab_label(&tab).unwrap();
-        assert_eq!(label.chars().count(), CLOSED_LABEL_MAX + 1);
-        assert!(label.ends_with('…'));
-    }
 
     #[test]
     fn relative_time_reads_coarsely_across_the_ranges() {
@@ -658,29 +670,50 @@ mod tests {
     }
 
     #[test]
-    fn every_home_shortcut_ships_with_a_chord_to_show() {
+    fn every_home_shortcut_with_a_chord_actually_has_one() {
         let defaults = crate::ui::keymap::default_bindings();
-        for action in HOME_SHORTCUTS {
+        for action in [HomeAction::CommandPalette, HomeAction::Settings] {
+            let name = action.keymap_action().expect("both map to a chord");
             let key = defaults
                 .iter()
-                .find(|(a, _)| *a == action)
-                .unwrap_or_else(|| panic!("{action} is not a bindable action"))
+                .find(|(a, _)| *a == name)
+                .unwrap_or_else(|| panic!("{name} is not a bindable action"))
                 .1;
             assert!(
                 !key.is_empty(),
-                "{action} has no default chord, so its home row would read as a bare label"
+                "{name} has no default chord, so its home row would read as a bare label"
             );
         }
     }
 
     #[test]
     fn the_home_list_leaves_out_what_an_empty_window_cannot_do() {
-        for action in ["SplitRight", "SplitDown", "CloseActiveTab", "RenameTab"] {
+        let bindable: Vec<&str> = HomeAction::ALL
+            .into_iter()
+            .filter_map(HomeAction::keymap_action)
+            .collect();
+        for action in [
+            "NewTab",
+            "ToggleSwitcher",
+            "SplitRight",
+            "SplitDown",
+            "CloseActiveTab",
+            "RenameTab",
+        ] {
             assert!(
-                !HOME_SHORTCUTS.contains(&action),
-                "{action} needs a pane, and the home page is what a window shows without one"
+                !bindable.contains(&action),
+                "{action} needs either a pane or another workspace, and the home page \
+                 is what a window shows without one"
             );
         }
+    }
+
+    #[test]
+    fn the_home_actions_are_never_a_bare_tab_or_a_switcher() {
+        assert_eq!(HomeAction::CreateWorkspace.keymap_action(), None);
+        assert_eq!(HomeAction::OpenFile.keymap_action(), None);
+        assert!(!HomeAction::CreateWorkspace.label().is_empty());
+        assert!(!HomeAction::OpenFile.label().is_empty());
     }
 
     #[test]

@@ -23,6 +23,12 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::HomeSplitRight => "Split Right",
         L10nKey::HomeSplitDown => "Split Down",
         L10nKey::HomeSettings => "Settings…",
+        L10nKey::HomeOpenFolder => "Open a Folder…",
+        L10nKey::HomeOpenFile => "Open a File…",
+        L10nKey::HomeCreateWorkspace => "Create New Workspace…",
+        L10nKey::HomeRecentWorkspaces => "Recent Workspaces",
+        L10nKey::HomeNoRecentWorkspaces => "No recent workspaces yet",
+        L10nKey::HomeUntitledWorkspace => "Untitled Workspace",
         L10nKey::TrayQuitStopServer => "Quit and Stop Server…",
         L10nKey::Reconnect => "Reconnect",
         L10nKey::None => "None.",
@@ -34,6 +40,7 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::ConnectSshHint => "Type user@host to connect over SSH instead.",
         L10nKey::EditHint => "edit",
         L10nKey::OpenFileFromTree => "Open a file from the file tree",
+        L10nKey::EditorEmptyExploreHint => "You can explore files and edit them via the left sidebar",
         L10nKey::TreeDirLoading => "Reading…",
         L10nKey::TreeDirEmpty => "Empty",
         L10nKey::TreeDirHiddenOnly => "Only hidden files",
@@ -472,6 +479,8 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SettingsOpenFilesInternal => "Built-in editor",
         L10nKey::SettingsOpenFilesSystem => "Default app",
         L10nKey::SettingsOpenFilesCommand => "Command",
+        L10nKey::SettingsEditorAutoSave => "Auto-save",
+        L10nKey::SettingsEditorAutoSaveDesc => "Save an open file to disk shortly after every edit, instead of only on ctrl-s.",
         L10nKey::SettingsOpenFilesModeDesc => {
             "What a {modifier}-clicked file link opens. Only the built-in editor can jump to a line or open a file on a remote host."
         }
@@ -1076,6 +1085,14 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::PanelNoSessionHint => {
             "Open a tab to see its shell, directory, and processes here."
         }
+        L10nKey::PanelAgentsTitle => "Instances",
+        L10nKey::PanelAgentsNewInstance => "New Instance",
+        L10nKey::PanelInstanceUnnamed => "Terminal",
+        L10nKey::PanelNoAgents => "No terminal instances yet.",
+        L10nKey::PanelNoAgentsHint => "Open one to see it here.",
+        L10nKey::PanelFilesNowInSidebar => {
+            "Your project files are in the left sidebar now. This tab is for browsing a remote host over SFTP."
+        }
         L10nKey::PanelNoWorkingDirectory => "No working directory.",
         L10nKey::PanelNoWorkingDirectoryHint => "This pane has not reported one yet.",
         L10nKey::PanelLoading => "Loading…",
@@ -1415,6 +1432,9 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SwitcherFormBack => "Back",
         L10nKey::SwitcherFormCreateHint => "Enter to create · Esc to go back",
         L10nKey::SwitcherFormPickHint => "↑↓ to choose · Enter to select · Esc to close",
+        L10nKey::SwitcherFormFolder => "Folder",
+        L10nKey::SwitcherFormChooseFolder => "Choose Folder…",
+        L10nKey::SwitcherFormFolderRequiredHint => "Pick a folder to create the workspace",
         L10nKey::SshPromptPasswordFor => "Password for {user}@{host}",
         L10nKey::SshPromptPassphraseFor => "Passphrase for {key_path}",
         L10nKey::SshPromptTwoFactor => "Two-factor authentication",
@@ -1495,6 +1515,7 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::CmdRightPanelInfo => "Right Panel: Info",
         L10nKey::CmdRightPanelChanges => "Right Panel: Changes",
         L10nKey::CmdRightPanelFiles => "Right Panel: Files",
+        L10nKey::CmdRightPanelAgents => "Right Panel: Agents",
         L10nKey::CmdChangeTheme => "Change Theme…",
         L10nKey::CmdResetFontSize => "Reset Font Size",
         L10nKey::CmdEnterFullScreen => "Enter Full Screen",

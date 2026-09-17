@@ -1185,6 +1185,11 @@ impl NermalApp {
             .filter(|n| *n > 0);
         [
             (
+                RightPanelTab::Agents,
+                Icon::empty().path("icons/terminal.svg"),
+                L10nKey::PanelAgentsTitle,
+            ),
+            (
                 RightPanelTab::Info,
                 Icon::empty().path("icons/info.svg"),
                 L10nKey::PanelInfoTitle,

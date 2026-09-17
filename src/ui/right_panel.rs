@@ -1,4 +1,4 @@
-use gpui::{AnyElement, Context, Window, div, prelude::*, px, rems};
+use gpui::{AnyElement, Context, Focusable as _, Window, div, prelude::*, px, rems};
 use gpui_component::button::Button;
 use gpui_component::input::Input;
 use gpui_component::{
@@ -446,6 +446,7 @@ impl NermalApp {
             RightPanelTab::Info => self.render_panel_info(window, cx),
             RightPanelTab::Scm => self.render_panel_scm(window, cx),
             RightPanelTab::Files => self.render_panel_files(window, cx),
+            RightPanelTab::Agents => self.render_panel_agents(window, cx),
         };
         let (backing, handle) = self.right_panel_resize(cx);
 
@@ -1774,6 +1775,10 @@ impl NermalApp {
         .detach();
     }
 
+    /// The SFTP browser for a remote pane's filesystem. The *local* tree
+    /// moved to the left sidebar, always on rather than a tab someone has to
+    /// switch to — this tab is left to remote browsing, which is the one
+    /// thing here that is still occasional and connection-specific.
     fn render_panel_files(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let remote = self.remote_files_pane(window, cx);
         let host = remote.as_ref().map(|(_, host)| host.clone());
@@ -1782,15 +1787,137 @@ impl NermalApp {
         }
 
         let title = self.panel_title(t(L10nKey::PanelFilesTitle), None, None, window, cx);
-        let search = self.panel_search(&self.file_search.clone(), cx);
-        let rows = self.render_file_tree_rows(window, cx);
-        v_flex()
-            .flex_1()
-            .min_h_0()
-            .child(title)
-            .child(search)
-            .child(rows)
-            .into_any_element()
+        self.panel_scroll(
+            self.panel_empty(t(L10nKey::PanelFilesNowInSidebar), None, cx),
+            title,
+        )
+    }
+
+    /// One row per terminal pane, across every tab of this workspace, that is
+    /// running a CLI coding agent — the right sidebar's answer to "what is
+    /// working right now", where the sidebar's own badges only ever say that
+    /// about the *tab* in front.
+    /// One row per terminal instance across every tab of this workspace —
+    /// every leaf, not only the ones running a CLI agent, since the tab list
+    /// that used to answer "what's running" moved out of the left sidebar
+    /// entirely: the sidebar is search-and-files now, and this panel is
+    /// where every terminal instance lives, agent or plain shell alike.
+    fn render_panel_agents(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        let new_instance = crate::ui::tab_strip::chrome_tile_sized(
+            Button::new("agent-new-instance").icon(Icon::empty().path("icons/plus.svg")),
+            TILE_SIZE_SM,
+            TILE_GLYPH_SM,
+            false,
+            cx,
+        )
+        .rounded_md()
+        .tooltip(t(L10nKey::PanelAgentsNewInstance))
+        .on_click(cx.listener(|this, _, window, cx| this.new_tab(window, cx)))
+        .into_any_element();
+        let title = self.panel_title(
+            t(L10nKey::PanelAgentsTitle),
+            None,
+            Some(new_instance),
+            window,
+            cx,
+        );
+        struct InstanceRow {
+            tab_index: usize,
+            leaf: gpui::Entity<crate::terminal::view::TerminalView>,
+            name: String,
+            agent: Option<crate::core::cli_agent::CLIAgent>,
+            status: Option<crate::core::cli_agent::AgentStatus>,
+            unread: bool,
+        }
+        let mut rows = Vec::new();
+        for (tab_index, tab) in self.tabs.iter().enumerate() {
+            for leaf in tab.pane.terminals() {
+                let view = leaf.read(cx);
+                let agent = view.agent();
+                let name = agent
+                    .map(|a| a.display_name().to_string())
+                    .or_else(|| tab.name.clone())
+                    .or_else(|| {
+                        view.effective_cwd()
+                            .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+                    })
+                    .unwrap_or_else(|| t(L10nKey::PanelInstanceUnnamed).to_string());
+                let status = agent.and_then(|_| view.agent_session().map(|s| s.status));
+                let unread = agent.is_some() && view.agent_result_unread();
+                rows.push(InstanceRow {
+                    tab_index,
+                    leaf: leaf.clone(),
+                    name,
+                    agent,
+                    status,
+                    unread,
+                });
+            }
+        }
+
+        if rows.is_empty() {
+            return self.panel_scroll(
+                self.panel_empty(t(L10nKey::PanelNoAgents), Some(t(L10nKey::PanelNoAgentsHint)), cx),
+                title,
+            );
+        }
+
+        let sf = cx.global::<crate::ui::presets::Surfaces>().sidebar;
+        let mut list = v_flex().px(px(CONTENT_INSET - ROW_INSET)).py(px(2.));
+        for (i, row) in rows.into_iter().enumerate() {
+            let avatar = self.tab_avatar(
+                ("panel-agent-avatar", i),
+                row.agent,
+                row.status,
+                usize::from(row.unread),
+                None,
+                18.,
+                cx,
+            );
+            let state = crate::ui::tab_strip::agent_status_label(row.status)
+                .map(|s| s.to_string())
+                .unwrap_or_default();
+            let tab_index = row.tab_index;
+            let leaf = row.leaf.clone();
+            list = list.child(
+                h_flex()
+                    .id(("panel-agent-row", i))
+                    .cursor_pointer()
+                    .items_center()
+                    .gap(px(8.))
+                    .px(px(ROW_INSET))
+                    .py(px(3.))
+                    .rounded(px(5.))
+                    .hover(|s| s.bg(gpui::rgb(sf.hover)))
+                    .child(avatar)
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .child(
+                                div()
+                                    .truncate()
+                                    .text_size(rems(TEXT))
+                                    .text_color(cx.theme().foreground)
+                                    .child(row.name),
+                            )
+                            .when(!state.is_empty(), |col| {
+                                col.child(
+                                    div()
+                                        .truncate()
+                                        .text_size(rems(META))
+                                        .text_color(cx.theme().muted_foreground)
+                                        .child(state),
+                                )
+                            }),
+                    )
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.activate(tab_index, window, cx);
+                        window.focus(&leaf.read(cx).focus_handle(cx), cx);
+                    })),
+            );
+        }
+        self.panel_scroll(list.into_any_element(), title)
     }
 
     /// The host label for whatever the Files panel is currently showing over

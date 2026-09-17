@@ -3,7 +3,6 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::core::config::RightPanelTab;
 use crate::core::git::status::{DecoStatus, DirRollup, StatusIndex};
 use crate::terminal::git_data::index_of;
 use crate::ui::app::{CONTENT_INSET, NermalApp};
@@ -820,7 +819,7 @@ impl NermalApp {
                 code.visible = true;
                 this.file_tree_refresh_roots(window, cx);
                 if !this.file_tree_on_screen(cx) {
-                    this.set_right_panel_tab(crate::core::config::RightPanelTab::Files, cx);
+                    this.reveal_file_tree_sidebar(cx);
                 }
                 cx.notify();
             });
@@ -870,9 +869,31 @@ impl NermalApp {
     }
 
     pub(crate) fn file_tree_on_screen(&self, cx: &App) -> bool {
-        self.right_panel_open(cx)
-            && self.right_panel_tab == RightPanelTab::Files
-            && self.sftp_panel.open_pane_id.is_none()
+        // The local tree now lives in the left sidebar, always on while it is
+        // open — it is no longer a right-panel tab someone has to switch to.
+        // The right panel's own Files tab is left to the SFTP browser, which
+        // is why `sftp_panel.open_pane_id` still gates this: that tab
+        // replaces the local tree with a remote listing while a browser is
+        // open on it.
+        self.sidebar_open(cx) && self.sftp_panel.open_pane_id.is_none()
+    }
+
+    /// Un-collapses the sidebar so the tree just gained a root, or was asked
+    /// to reveal a path, is actually visible — but only when the tab bar is
+    /// already in the Left layout the sidebar belongs to. `toggle_left_panel`
+    /// also *switches into* that layout from Top, which is the right thing
+    /// for a deliberate "show the sidebar" keystroke but the wrong thing for
+    /// a side-effect of opening a folder: it would flip someone's tab bar
+    /// layout out from under them just because the tree had something to
+    /// show. In Top layout there is nowhere here to reveal it; the tree stays
+    /// off screen until they switch layouts themselves.
+    pub(crate) fn reveal_file_tree_sidebar(&mut self, cx: &mut Context<Self>) {
+        if cx.global::<crate::core::config::Config>().tab_bar_position
+            == crate::core::config::TabBarPosition::Left
+            && self.sidebar_collapsed
+        {
+            self.toggle_left_panel(cx);
+        }
     }
 
     fn file_tree_query(&self, cx: &App) -> String {
@@ -1098,10 +1119,7 @@ impl NermalApp {
             }
             return;
         }
-        if !self.right_panel_open(cx) {
-            self.toggle_right_panel(cx);
-        }
-        self.set_right_panel_tab(RightPanelTab::Files, cx);
+        self.reveal_file_tree_sidebar(cx);
     }
 
     fn file_tree_key_down(
@@ -2988,7 +3006,6 @@ mod render_idle_gpui_tests {
     use crate::daemon::protocol::DaemonMsg;
     use crate::ui::app::{render_probe, test_window};
     use gpui::{Entity, TestAppContext, VisualTestContext};
-    use nermal_core::core::config::RightPanelTab;
 
     const BUDGET: u64 = 200;
 
@@ -3017,8 +3034,12 @@ mod render_idle_gpui_tests {
             .encode(&mut pane)
             .expect("the pane's socket takes the cwd");
         app.update_in(&mut vcx, |app, _, cx| {
-            app.right_panel_visible = true;
-            app.right_panel_tab = RightPanelTab::Files;
+            // The tree is on screen whenever the left sidebar is — no right
+            // panel involved any more.
+            app.sidebar_collapsed = false;
+            let cfg = cx.global_mut::<crate::core::config::Config>();
+            cfg.tab_bar_position = crate::core::config::TabBarPosition::Left;
+            cfg.sidebar_collapsed = false;
             cx.notify();
         });
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
@@ -3455,8 +3476,11 @@ mod render_idle_gpui_tests {
         }
         let (app, mut vcx, _pane) = files_panel_on(cx, &root);
 
+        // "Closed" is now the left sidebar, which is where the tree lives —
+        // the right panel has nothing to do with whether it is on screen.
         app.update_in(&mut vcx, |app, _, cx| {
-            app.right_panel_visible = false;
+            app.sidebar_collapsed = true;
+            cx.global_mut::<crate::core::config::Config>().sidebar_collapsed = true;
             cx.notify();
         });
         vcx.background_executor.run_until_parked();
@@ -3483,7 +3507,8 @@ mod render_idle_gpui_tests {
         assert!(marked > 0, "but the change was recorded");
 
         app.update_in(&mut vcx, |app, _, cx| {
-            app.right_panel_visible = true;
+            app.sidebar_collapsed = false;
+            cx.global_mut::<crate::core::config::Config>().sidebar_collapsed = false;
             cx.notify();
         });
         settle(&app, &mut vcx, &root);

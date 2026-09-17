@@ -464,6 +464,14 @@ pub struct Tab {
     /// the whole window here and half of it there, and a global switch made
     /// each of those flip the other.
     pub(crate) document_layout: Option<crate::core::config::DocumentLayout>,
+    /// Whether the document dock's default empty state — shown for a tab that
+    /// has never opened a file, so the column is there before anyone knows to
+    /// look for it — has been explicitly turned off. `code.visible` cannot
+    /// carry this on its own: it starts `false` on a `TabCode` created for any
+    /// reason at all (pinning a folder, tracking roots), which would silently
+    /// count as "dismissed" if that were the only signal. Never persisted —
+    /// there is nothing here worth remembering past this run.
+    pub(crate) document_dismissed: bool,
     pub(crate) tree_id: std::cell::Cell<nermal_core::core::machine::TabId>,
     /// Monotonic stamp of when this tab was last activated, used to order the
     /// switcher's tab column most-recently-used first. Zero means never.
@@ -506,6 +514,7 @@ impl Tab {
             code: None,
             overlay_top: OverlayTop::default(),
             document_layout: None,
+            document_dismissed: false,
             sidebar_group: std::cell::RefCell::new(None),
             tree_id: std::cell::Cell::new(nermal_core::core::machine::TabId::new()),
             last_used: std::cell::Cell::new(0),
@@ -523,6 +532,7 @@ impl Tab {
             code: None,
             overlay_top: OverlayTop::default(),
             document_layout: None,
+            document_dismissed: false,
             sidebar_group: std::cell::RefCell::new(
                 tree.sidebar_group
                     .as_deref()
@@ -1885,7 +1895,7 @@ impl NermalApp {
         cx.notify();
     }
 
-    fn reopen_closed_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn reopen_closed_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(st) = self.closed.pop() else {
             return;
         };
@@ -1918,6 +1928,7 @@ impl NermalApp {
                 code: None,
                 overlay_top: OverlayTop::default(),
                 document_layout: None,
+                document_dismissed: false,
                 sidebar_group: std::cell::RefCell::new(st.sidebar_group),
                 tree_id: std::cell::Cell::new(nermal_core::core::machine::TabId::new()),
                 last_used: std::cell::Cell::new(0),
@@ -2872,6 +2883,10 @@ impl NermalApp {
         self.update_config(cx, |cfg| cfg.ssh_warn_on_close = on);
     }
 
+    pub(crate) fn set_editor_auto_save(&mut self, on: bool, cx: &mut Context<Self>) {
+        self.update_config(cx, |cfg| cfg.editor_auto_save = on);
+    }
+
     pub(crate) fn forward_route(&self, pane_id: u64, cx: &gpui::App) -> ForwardRoute {
         let workspace = self
             .tabs
@@ -3746,7 +3761,7 @@ impl NermalApp {
         }
     }
 
-    fn new_tab_with_cwd(
+    pub(crate) fn new_tab_with_cwd(
         &mut self,
         cwd: Option<std::path::PathBuf>,
         shell: Option<ShellSpec>,
@@ -5319,7 +5334,7 @@ impl NermalApp {
         commands
     }
 
-    fn toggle_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn toggle_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.palette.is_some() {
             self.close_palette(window, cx);
             return;
@@ -5640,7 +5655,7 @@ impl NermalApp {
         );
     }
 
-    fn toggle_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn toggle_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.settings.is_some() {
             self.close_settings_checked(window, cx);
             return;
@@ -7772,23 +7787,15 @@ impl Render for NermalApp {
         // are rendered, ordered by `overlay_top`, and the front one wins on
         // paint order as it always has.
         let document_dock_px = self.document_dock_px(window, cx);
-        // Where the docked header sits. Everywhere but macOS the title bar
-        // spans the workspace and leaves the strip above the column empty, so
-        // the header goes up into it; on macOS the column already reaches the
-        // top of the window and its own first row lands there.
-        let document_chrome = if cfg!(target_os = "macos") {
-            crate::ui::document_column::DocumentChrome::Dock
-        } else {
-            crate::ui::document_column::DocumentChrome::DockHoisted
-        };
-        let document_header = document_dock_px
-            .is_some()
-            .then(|| self.render_document_header(document_chrome, window, cx))
-            .flatten();
+        // Always its own header now: `DockHoisted` bought back the header's
+        // row of height for a column that was narrow enough to feel it. A
+        // column docked above the terminal shares its width instead, and has
+        // no shortage of height to spare its own header row.
+        let document_chrome = crate::ui::document_column::DocumentChrome::Dock;
         let (overlays, document_column) = match document_dock_px {
-            Some(w) => (
+            Some(h) => (
                 Vec::new(),
-                self.render_document_column(w, document_chrome, window, cx),
+                self.render_document_column(h, document_chrome, window, cx),
             ),
             None => {
                 let diff_overlay = self.render_diff_overlay(
@@ -7820,17 +7827,14 @@ impl Render for NermalApp {
                 )
             }
         };
-        let document_px = document_column
-            .as_ref()
-            .map_or(0., |_| document_dock_px.unwrap_or_default());
-
         let right_panel = self.render_right_panel(window, cx);
-        // A docked document takes the same fork the right panel does: on
-        // Windows and Linux the window controls live at the right end of the
-        // title bar, so the bar has to span the workspace rather than sit
-        // inside the terminal column with a column drawn to the right of it.
-        let panel_below_title_bar =
-            (right_panel.is_some() || document_column.is_some()) && !cfg!(target_os = "macos");
+        // On Windows and Linux the window controls live at the right end of
+        // the title bar, so a right panel makes the bar span the workspace
+        // rather than sit inside the terminal column with a panel drawn to
+        // the right of it. The document no longer has a say here: it docks
+        // above the terminal now, inside the same column, so it never moves
+        // where that column's right edge — and the controls on it — land.
+        let panel_below_title_bar = right_panel.is_some() && !cfg!(target_os = "macos");
         let (column_title_bar, spanning_title_bar) = if panel_below_title_bar {
             (None, Some(title_bar))
         } else {
@@ -7853,6 +7857,11 @@ impl Render for NermalApp {
             .flex_col()
             .relative()
             .when_some(column_title_bar, |this, bar| this.child(bar))
+            // Docked above the terminal rather than beside it: reading a file
+            // no longer takes width away from the pane the window exists to
+            // show (see document_column.rs's module doc), and the two now
+            // share this column's height instead of the row's width.
+            .when_some(document_column, |this, column| this.child(column))
             .child(body_area)
             .children(column_overlays);
         let panel_row = div()
@@ -7862,7 +7871,6 @@ impl Render for NermalApp {
             .flex()
             .flex_row()
             .child(terminal_column)
-            .when_some(document_column, |this, column| this.child(column))
             .when_some(right_panel, |this, panel| this.child(panel));
         let main_layout = div()
             .flex_1()
@@ -7882,11 +7890,14 @@ impl Render for NermalApp {
                         div()
                             .relative()
                             .flex_none()
-                            // One patch per column below, rather than one for
-                            // both: each carries the left border its own column
-                            // carries, so the rule between the document and the
-                            // detail panel runs the full height of the window
-                            // instead of stopping at the title bar.
+                            // The right panel's own patch: it carries the left
+                            // border its column carries, so the rule between
+                            // it and the terminal runs the full height of the
+                            // window instead of stopping at the title bar. The
+                            // document has no patch of its own here any more —
+                            // it docks above the terminal now, inside the same
+                            // column, so it never reaches up alongside this
+                            // spanning bar the way a right-side column did.
                             .when(panel_px > 0., |this| {
                                 this.child(
                                     div()
@@ -7900,43 +7911,7 @@ impl Render for NermalApp {
                                         .border_color(cx.theme().sidebar_border),
                                 )
                             })
-                            .when(document_px > 0., |this| {
-                                this.child(
-                                    div()
-                                        .absolute()
-                                        .top_0()
-                                        .bottom_0()
-                                        .right(px(panel_px))
-                                        .w(px(document_px))
-                                        .bg(crate::ui::theme::workspace_surface_color(cx))
-                                        .border_l_1()
-                                        .border_color(cx.theme().sidebar_border),
-                                )
-                            })
-                            .child(bar)
-                            // The document's header, in the strip the spanning
-                            // title bar leaves empty above its column. Drawn
-                            // after the bar so it sits over the tab strip's
-                            // slack — and stopping short of the trailing
-                            // chrome, which is only in the way when the detail
-                            // panel is closed and this column is the one at the
-                            // window's right edge.
-                            .when_some(document_header, |this, header| {
-                                this.child(
-                                    div()
-                                        .absolute()
-                                        .top_0()
-                                        .h(px(TITLE_BAR_HEIGHT))
-                                        .right(px(panel_px))
-                                        .w(px(document_px))
-                                        .when(panel_px <= 0., |d| {
-                                            d.pr(px(crate::ui::tab_strip::trailing_chrome_w(
-                                                window.is_fullscreen(),
-                                            )))
-                                        })
-                                        .child(header),
-                                )
-                            }),
+                            .child(bar),
                     )
                     .child(panel_row)
                     .children(hoisted_overlays.into_iter().map(|overlay| {
@@ -8549,6 +8524,7 @@ fn tabs_from_session(
             code: None,
             overlay_top: OverlayTop::default(),
             document_layout: None,
+            document_dismissed: false,
             sidebar_group: std::cell::RefCell::new(st.sidebar_group.clone()),
             tree_id: std::cell::Cell::new(
                 st.tree_id

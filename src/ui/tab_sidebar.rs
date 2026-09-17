@@ -208,7 +208,7 @@ impl NermalApp {
     }
 
     pub(crate) fn tab_sidebar(
-        &self,
+        &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
@@ -1607,13 +1607,37 @@ impl NermalApp {
                         "tab-sidebar-scrollbar",
                         list,
                         &self.sidebar_scroll,
-                    )),
+                    ))
+                    .child(self.render_sidebar_file_tree(window, cx)),
             )
             .child(handle)
             .child(crate::ui::app::hover_sheet(
                 "sidebar-chrome-hover",
                 &self.sidebar_chrome_hover,
             ))
+    }
+
+    /// The attached folder's files, right under the tab list — the tree used
+    /// to live in the right panel's Files tab; it moved here so the project
+    /// it belongs to and the terminals working in it share one column,
+    /// instead of the tree living a click away on the opposite edge of the
+    /// window.
+    fn render_sidebar_file_tree(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        if self.tabs.get(self.active).is_none() {
+            return div().into_any_element();
+        }
+        v_flex()
+            .flex_1()
+            .min_h_0()
+            .border_t_1()
+            .border_color(cx.theme().sidebar_border)
+            .child(self.panel_search(&self.file_search.clone(), cx))
+            .child(self.render_file_tree_rows(window, cx))
+            .into_any_element()
     }
 
     /// What the sidebar row hid: the full title, the full branch and diff

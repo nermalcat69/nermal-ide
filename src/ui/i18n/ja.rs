@@ -23,6 +23,12 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::HomeSplitRight => "右に分割",
         L10nKey::HomeSplitDown => "下に分割",
         L10nKey::HomeSettings => "設定…",
+        L10nKey::HomeOpenFolder => "フォルダを開く…",
+        L10nKey::HomeOpenFile => "ファイルを開く…",
+        L10nKey::HomeCreateWorkspace => "新しいワークスペースを作成…",
+        L10nKey::HomeRecentWorkspaces => "最近のワークスペース",
+        L10nKey::HomeNoRecentWorkspaces => "最近のワークスペースはありません",
+        L10nKey::HomeUntitledWorkspace => "無題のワークスペース",
         L10nKey::TrayQuitStopServer => "終了してサーバーを停止…",
         L10nKey::Reconnect => "再接続",
         L10nKey::None => "なし",
@@ -34,6 +40,7 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::ConnectSshHint => "SSH で接続するには user@host を入力してください",
         L10nKey::EditHint => "編集",
         L10nKey::OpenFileFromTree => "ファイルツリーからファイルを開く",
+        L10nKey::EditorEmptyExploreHint => "左サイドバーからファイルを探索して編集できます",
         L10nKey::TreeDirLoading => "読み込み中…",
         L10nKey::TreeDirEmpty => "空",
         L10nKey::TreeDirHiddenOnly => "隠しファイルのみ",
@@ -483,6 +490,8 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsOpenFilesInternal => "内蔵エディタ",
         L10nKey::SettingsOpenFilesSystem => "デフォルトアプリ",
         L10nKey::SettingsOpenFilesCommand => "コマンド",
+        L10nKey::SettingsEditorAutoSave => "自動保存",
+        L10nKey::SettingsEditorAutoSaveDesc => "編集のたびに、ctrl-sを待たずにファイルを自動的に保存します。",
         L10nKey::SettingsOpenFilesModeDesc => {
             "ファイルリンクを {modifier}+クリックしたときに開くもの。行番号へのジャンプとリモートファイルを開けるのは内蔵エディタだけです"
         }
@@ -1140,6 +1149,14 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::PanelNoSessionHint => {
             "タブを開くと、そのシェル、ディレクトリ、プロセスがここに表示されます"
         }
+        L10nKey::PanelAgentsTitle => "インスタンス",
+        L10nKey::PanelAgentsNewInstance => "新しいインスタンス",
+        L10nKey::PanelInstanceUnnamed => "ターミナル",
+        L10nKey::PanelNoAgents => "ターミナルインスタンスはまだありません",
+        L10nKey::PanelNoAgentsHint => "開くとここに表示されます",
+        L10nKey::PanelFilesNowInSidebar => {
+            "プロジェクトのファイルは左サイドバーに移動しました。このタブはSFTP経由のリモートホスト閲覧用です。"
+        }
         L10nKey::PanelNoWorkingDirectory => "作業ディレクトリがありません",
         L10nKey::PanelNoWorkingDirectoryHint => {
             "このペインはまだ作業ディレクトリを報告していません"
@@ -1476,6 +1493,9 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SwitcherFormBack => "戻る",
         L10nKey::SwitcherFormCreateHint => "Enter で作成 · Esc で戻る",
         L10nKey::SwitcherFormPickHint => "↑↓ で選択 · Enter で決定 · Esc で閉じる",
+        L10nKey::SwitcherFormFolder => "フォルダー",
+        L10nKey::SwitcherFormChooseFolder => "フォルダーを選択…",
+        L10nKey::SwitcherFormFolderRequiredHint => "ワークスペースを作成するにはフォルダーを選んでください",
         L10nKey::SshPromptPasswordFor => "{user}@{host} のパスワード",
         L10nKey::SshPromptPassphraseFor => "{key_path} のパスフレーズ",
         L10nKey::SshPromptTwoFactor => "二要素認証",
@@ -1558,6 +1578,7 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::CmdRightPanelInfo => "右パネル: 情報",
         L10nKey::CmdRightPanelChanges => "右パネル: 変更",
         L10nKey::CmdRightPanelFiles => "右パネル: ファイル",
+        L10nKey::CmdRightPanelAgents => "右パネル: エージェント",
         L10nKey::CmdChangeTheme => "テーマを変更…",
         L10nKey::CmdResetFontSize => "フォントサイズをリセット",
         L10nKey::CmdEnterFullScreen => "全画面表示",

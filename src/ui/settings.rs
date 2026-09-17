@@ -5934,6 +5934,7 @@ impl NermalApp {
         let mouse_reporting = cfg.mouse_reporting;
         let mouse_zoom = cfg.mouse_zoom_modifier;
         let bell = cfg.bell;
+        let editor_auto_save = cfg.editor_auto_save;
         // A bucket highlights only on an exact match; any other value gets a
         // "Custom (N)" cell so the highlight never claims a number the config
         // does not have, and clicking that cell cannot overwrite it (#550).
@@ -5957,6 +5958,10 @@ impl NermalApp {
         let ssh_loopback_switch = crate::ui::theme::switch("term-ssh-loopback-forward", cx)
             .checked(ssh_loopback_forward)
             .on_click(cx.listener(|this, on: &bool, _w, cx| this.set_ssh_loopback_forward(*on, cx)))
+            .into_any_element();
+        let editor_auto_save_switch = crate::ui::theme::switch("editor-auto-save", cx)
+            .checked(editor_auto_save)
+            .on_click(cx.listener(|this, on: &bool, _w, cx| this.set_editor_auto_save(*on, cx)))
             .into_any_element();
         let link_file_open = cfg.file_open_mode();
         let link_file_open_radio = self.segmented(
@@ -6203,6 +6208,12 @@ impl NermalApp {
                     cx,
                 )
             }))
+            .child(self.settings_row(
+                t(L10nKey::SettingsEditorAutoSave),
+                t(L10nKey::SettingsEditorAutoSaveDesc),
+                editor_auto_save_switch,
+                cx,
+            ))
             .into_any_element()
     }
 

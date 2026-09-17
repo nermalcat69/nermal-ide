@@ -164,6 +164,7 @@ impl CommandKind {
             // even though the panel is now called Source Control.
             ShowRightPanel(RightPanelTab::Scm) => "right-panel-changes",
             ShowRightPanel(RightPanelTab::Files) => "right-panel-files",
+            ShowRightPanel(RightPanelTab::Agents) => "right-panel-agents",
             ClearTerminal => "clear-scrollback",
             FindInTerminal => "find",
             FindNext => "find-next",
@@ -271,6 +272,7 @@ impl CommandKind {
                 RightPanelTab::Info => "ShowRightPanelInfo",
                 RightPanelTab::Scm => "ShowRightPanelChanges",
                 RightPanelTab::Files => "ShowRightPanelFiles",
+                RightPanelTab::Agents => "ShowRightPanelAgents",
             },
             ClearTerminal => "ClearScrollback",
             FindInTerminal => "FindInTerminal",
@@ -520,6 +522,10 @@ impl Command {
             Command::localized(
                 L10nKey::CmdRightPanelFiles,
                 ShowRightPanel(RightPanelTab::Files),
+            ),
+            Command::localized(
+                L10nKey::CmdRightPanelAgents,
+                ShowRightPanel(RightPanelTab::Agents),
             ),
             Command::localized(L10nKey::CmdChangeTheme, OpenThemePicker),
             Command::localized(L10nKey::CmdResetFontSize, ResetFontSize),

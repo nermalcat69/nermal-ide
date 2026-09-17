@@ -796,12 +796,20 @@ impl NermalApp {
     }
 
     pub(crate) fn toggle_code_panel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // Read before anything below mutates `tab.code` — `document_front`
+        // is the *effective* on/off state (a never-touched tab reads as on,
+        // showing its empty state, unless it was already dismissed), which is
+        // what the toggle has to flip. The raw `code.visible` this used to
+        // read stayed `false` for an untouched tab and made the first press
+        // "open" a dock the reader was already looking at.
+        let showing_code =
+            self.document_front() == Some(crate::ui::app::OverlayTop::Code);
         let Some(tab) = self.tabs.get_mut(self.active) else {
             return;
         };
         let buried = tab.overlay_top == crate::ui::app::OverlayTop::Diff
             && tab.diff_overlay.is_some()
-            && tab.code.as_ref().is_some_and(|c| c.visible);
+            && showing_code;
         tab.overlay_top = crate::ui::app::OverlayTop::Code;
         if buried {
             self.focus_editor(window, cx);
@@ -811,14 +819,24 @@ impl NermalApp {
         let Some(tab) = self.tabs.get_mut(self.active) else {
             return;
         };
-        let code = tab.code.get_or_insert_with(|| Box::new(TabCode::new()));
-        if code.visible {
-            code.visible = false;
+        if showing_code {
+            // `document_dismissed` rather than only `code.visible = false`:
+            // a tab with no file open was never explicitly "opened" in the
+            // first place, so there is nothing for the raw flag to record —
+            // the default has to be turned off somewhere that survives an
+            // unrelated `TabCode` getting created later (pinning a root,
+            // tracking one) without silently popping the empty state back.
+            if let Some(code) = tab.code.as_mut() {
+                code.visible = false;
+            }
+            tab.document_dismissed = true;
             self.file_tree.editing = None;
             self.focus_active(window, cx);
             cx.notify();
             return;
         }
+        tab.document_dismissed = false;
+        let code = tab.code.get_or_insert_with(|| Box::new(TabCode::new()));
         code.visible = true;
         self.file_tree_refresh_roots(window, cx);
         if self.tab_code().is_some_and(|c| c.active_file().is_some()) {
@@ -829,9 +847,7 @@ impl NermalApp {
             // tree on screen, so ⌘⇧E on a fresh tab opened an empty editor
             // pointing at a panel the reader could not see or reach from
             // there. Reveal it, then focus it.
-            if !self.file_tree_on_screen(cx) {
-                self.set_right_panel_tab(crate::core::config::RightPanelTab::Files, cx);
-            }
+            self.reveal_file_tree_sidebar(cx);
             self.file_tree.focus_handle.focus(window, cx);
         }
         cx.notify();
@@ -1543,7 +1559,7 @@ impl NermalApp {
             .when_some(cursor, |this, t| this.child(div().child(t)))
     }
 
-    fn render_editor_empty(&self, cx: &Context<Self>) -> gpui::Div {
+    pub(crate) fn render_editor_empty(&self, cx: &Context<Self>) -> gpui::Div {
         v_flex()
             .size_full()
             .items_center()
@@ -1559,7 +1575,7 @@ impl NermalApp {
                     .text_sm()
                     .text_color(cx.theme().muted_foreground)
                     .child(crate::ui::i18n::t(
-                        crate::ui::i18n::L10nKey::OpenFileFromTree,
+                        crate::ui::i18n::L10nKey::EditorEmptyExploreHint,
                     )),
             )
     }

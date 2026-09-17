@@ -39,19 +39,22 @@ use crate::ui::right_panel::RESIZE_HANDLE_WIDTH;
 pub(crate) enum DocumentChrome {
     /// The historical full-workspace overlay.
     Fill,
-    /// A column beside the terminal, carrying its own header as its first row.
-    /// macOS only: there the title bar lives inside the terminal column, so the
-    /// document column runs to the top of the window and its header lands in
-    /// the title strip by itself.
+    /// A column now docked above the terminal, carrying its own header as its
+    /// first row.
     Dock,
-    /// A column beside the terminal whose header has been lifted into the
-    /// spanning title bar above it.
-    ///
-    /// Windows and Linux put the window controls at the right end of a title
-    /// bar that spans the workspace, which leaves the strip directly above the
-    /// document column empty — a title bar's height of nothing, with the file
-    /// name one row below it. The header goes there instead, and the column
-    /// renders its body alone.
+    /// Unused since the dock moved above the terminal instead of beside it —
+    /// `app.rs` no longer selects it, so `render_document_header` and this
+    /// variant's own arms are dead code. Left in rather than torn out: it hoisted
+    /// a narrow column's header into the title bar's empty strip to buy back a
+    /// header's height of room, which mattered when the column was a slice of
+    /// the window's *width*. Docked above the terminal it shares the terminal's
+    /// full width and has height to spare for its own header, so the hoist has
+    /// nothing left to buy — but removing it touches `code_editor.rs` and
+    /// `diff_overlay.rs`'s header rendering too, and neither of those is
+    /// exercised by anything this change actually needed to prove out.
+    /// ponytail: dead variant + `render_document_header`, delete along with
+    /// their `code_editor.rs`/`diff_overlay.rs` match arms once nothing reaches
+    /// for `DockHoisted` any more.
     DockHoisted,
 }
 
@@ -103,12 +106,18 @@ impl NermalApp {
     /// painted and the front one wins on paint order. A column has one child,
     /// so the ordering has to become a choice: the surface on top, unless it is
     /// closed, in which case there is no front and the survivor is it.
+    ///
+    /// Nothing open is Code's empty state now, not the absence of a front —
+    /// a tab that has never opened a file gets the dock anyway, with its
+    /// "open a file from the left sidebar" message, so the column is there
+    /// before anyone knows to look for it. `document_dismissed` is the one
+    /// thing that turns that default off (see its doc on `Tab`).
     pub(crate) fn document_front(&self) -> Option<OverlayTop> {
         let tab = self.tabs.get(self.active)?;
         let code = tab.code.as_ref().is_some_and(|c| c.visible);
         let diff = tab.diff_overlay.is_some();
         match (tab.overlay_top, code, diff) {
-            (_, false, false) => None,
+            (_, false, false) => (!tab.document_dismissed).then_some(OverlayTop::Code),
             (OverlayTop::Code, true, _) | (OverlayTop::Diff, true, false) => Some(OverlayTop::Code),
             (OverlayTop::Diff, _, true) | (OverlayTop::Code, false, true) => Some(OverlayTop::Diff),
         }
@@ -117,34 +126,28 @@ impl NermalApp {
     /// What the document column has reserved, from a side panel's point of
     /// view.
     ///
-    /// Read from the user's intent and from whether a surface is open — never
-    /// from the *effective* layout, which is derived from the widths this feeds
-    /// and would close the loop on itself.
-    pub(crate) fn document_floor(&self, cx: &gpui::App) -> f32 {
-        if self.document_layout(cx) == DocumentLayout::Dock && self.document_front().is_some() {
-            DOCUMENT_MIN_W
-        } else {
-            0.
-        }
+    /// Always zero now: the document docks above the terminal rather than
+    /// beside it, so it shares the terminal column's *height*, not the width
+    /// a sidebar or the right panel is competing for. Kept as a method,
+    /// rather than deleted, because `sidebar_floor`/`right_panel_floor` still
+    /// call it — deleting it would mean touching both of those to drop a term
+    /// that is now always zero, for no behaviour change either way.
+    pub(crate) fn document_floor(&self, _cx: &gpui::App) -> f32 {
+        0.
     }
 
-    /// The width the terminal and a docked document share: the window less
-    /// whichever side panels are open, at the widths they are actually drawn
-    /// at rather than at their floors. A sidebar someone dragged wider is width
-    /// the terminal no longer has.
-    pub(crate) fn document_body_px(&self, window: &Window, cx: &gpui::App) -> f32 {
-        let viewport = window.viewport_size().width.as_f32();
-        let sidebar = if self.sidebar_open(cx) {
-            self.sidebar_px(window, cx)
-        } else {
-            0.
-        };
-        let panel = if self.right_panel_open(cx) {
-            self.right_panel_px(window, cx)
-        } else {
-            0.
-        };
-        viewport - sidebar - panel
+    /// The height the terminal and a docked document share.
+    ///
+    /// Approximate — it is the window's height less the title bar, not less
+    /// every other row above the terminal (a horizontal tab strip, when the
+    /// tab bar is on top, is not accounted for). That is fine for what this
+    /// feeds: a floor/ratio clamp, recomputed every frame from the same
+    /// formula, not an exact pixel layout.
+    /// ponytail: approximation ignores the horizontal tab strip's height;
+    /// tighten if a document ever visibly overruns the terminal's floor with
+    /// that strip on screen.
+    pub(crate) fn document_body_px(&self, window: &Window, _cx: &gpui::App) -> f32 {
+        window.viewport_size().height.as_f32() - crate::ui::app::TITLE_BAR_HEIGHT
     }
 
     /// How wide the document column is drawn this frame, or `None` when the
@@ -261,16 +264,31 @@ impl NermalApp {
         }
     }
 
+    /// `height` is the docked column's share of the terminal column's
+    /// height — it docks *above* the terminal now, not beside it, so reading
+    /// a file no longer takes width away from the pane that is the point of
+    /// the window; it takes height, and the terminal keeps scrolling under it
+    /// the way it always did (see the module doc).
     pub(crate) fn render_document_column(
         &mut self,
-        width: f32,
+        height: f32,
         chrome: DocumentChrome,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         let body = self.document_body_px(window, cx);
         let surface = match self.document_front()? {
-            OverlayTop::Code => self.render_code_overlay(chrome, window, cx),
+            // `render_code_overlay` returns `None` when nothing is explicitly
+            // open — the same condition `document_front` just called the
+            // default empty state for, since a genuinely dismissed tab never
+            // reaches this arm at all (its `document_front` is `None`, and
+            // the `?` above already returned). The dock shows that empty
+            // state directly here rather than through the overlay path,
+            // which stays reserved for the Fill/narrow-window fallback where
+            // an empty dock would otherwise cover the whole terminal.
+            OverlayTop::Code => self
+                .render_code_overlay(chrome, window, cx)
+                .or_else(|| Some(self.render_editor_empty(cx).into_any_element())),
             OverlayTop::Diff => self.render_diff_overlay(chrome, window, cx),
         }?;
         let (backing, handle) = self.document_resize(body, cx);
@@ -279,16 +297,11 @@ impl NermalApp {
                 .id("document-column")
                 .relative()
                 .flex_none()
-                .w(px(width))
-                .h_full()
+                .w_full()
+                .h(px(height))
                 .bg(crate::ui::theme::workspace_surface_color(cx))
-                .border_l_1()
+                .border_b_1()
                 .border_color(cx.theme().sidebar_border)
-                .child(backing)
-                // The clip belongs to the content, not to the column: the
-                // divider hangs half a handle past the left edge, the way the
-                // panels' do, and clipping the column would have taken that
-                // half — and the grab with it — away.
                 .child(
                     div()
                         .flex_1()
@@ -297,6 +310,12 @@ impl NermalApp {
                         .overflow_hidden()
                         .child(surface),
                 )
+                // The clip belongs to the content, not to the column: the
+                // divider hangs half a handle past the bottom edge, the way
+                // the panels' hangs past its side edge, and clipping the
+                // column would have taken that half — and the grab with it —
+                // away.
+                .child(backing)
                 .child(handle)
                 .into_any_element(),
         )
@@ -334,8 +353,12 @@ impl NermalApp {
                             let Some(b) = container.get() else {
                                 return;
                             };
-                            let right = b.origin.x + b.size.width;
-                            let raw = (right - ev.position.x).as_f32();
+                            // The divider sits on the column's bottom edge now
+                            // instead of its left one, so what grows the
+                            // column is the pointer moving down from its top
+                            // edge rather than left from its right one.
+                            let top = b.origin.y;
+                            let raw = (ev.position.y - top).as_f32();
                             ratio_cell.set(dragged_ratio(body, raw));
                             window.refresh();
                         }
@@ -370,18 +393,18 @@ impl NermalApp {
             .group("document-resize")
             .occlude()
             .absolute()
-            .top_0()
-            .left(px(-(RESIZE_HANDLE_WIDTH / 2.)))
-            .w(px(RESIZE_HANDLE_WIDTH))
-            .h_full()
+            .left_0()
+            .bottom(px(-(RESIZE_HANDLE_WIDTH / 2.)))
+            .h(px(RESIZE_HANDLE_WIDTH))
+            .w_full()
             .flex()
             .items_center()
             .justify_center()
-            .cursor_col_resize()
+            .cursor_row_resize()
             .child(
                 div()
-                    .w(px(1.))
-                    .h_full()
+                    .h(px(1.))
+                    .w_full()
                     .when(active, |d| d.bg(cx.theme().drag_border))
                     .group_hover("document-resize", |s| s.bg(cx.theme().drag_border)),
             )
@@ -626,15 +649,7 @@ mod gpui_tests {
     fn one_tabs_fill_leaves_the_other_docked(cx: &mut TestAppContext) {
         let (app, mut vcx) = window_with(cx, 1440., 2);
 
-        // A file open in each tab, both docked to start with.
-        for i in [0, 1] {
-            app.update_in(&mut vcx, |app, window, cx| {
-                app.active = i;
-                app.toggle_code_panel(window, cx);
-            });
-        }
-        vcx.run_until_parked();
-
+        // Both tabs dock by default — nothing to toggle on for either.
         app.update_in(&mut vcx, |app, _, cx| {
             app.active = 1;
             app.toggle_document_fill(cx);
@@ -652,12 +667,15 @@ mod gpui_tests {
         // The config is untouched — it is what every tab that was never told is
         // still reading, so writing it would have reached all of them at once.
         assert_eq!(layout(&mut vcx), DocumentLayout::Dock);
-        app.update_in(&mut vcx, |app, window, cx| {
+        app.update_in(&mut vcx, |app, _, cx| {
             push_tab(app, cx);
             app.active = 2;
-            app.toggle_code_panel(window, cx);
         });
         vcx.run_until_parked();
+        // No `toggle_code_panel` here: a fresh tab already docks by default
+        // (with its own empty state) — starting from the config, not from
+        // what tab 1 chose, and not from "nobody has pressed the toggle yet"
+        // either the way it used to.
         assert!(
             dock_px(&app, &mut vcx).is_some(),
             "a fresh tab starts from the config, not from what tab 1 chose"
@@ -680,13 +698,13 @@ mod gpui_tests {
         vcx.update(|_, cx| {
             cx.global_mut::<Config>().tab_bar_position = crate::core::config::TabBarPosition::Top;
         });
-        app.update_in(&mut vcx, |app, window, cx| {
+        app.update_in(&mut vcx, |app, _, _| {
             for (i, tab) in app.tabs.iter_mut().enumerate() {
                 tab.name = Some(format!("a tab with a long enough name {i}"));
             }
             app.active = 0;
-            app.toggle_code_panel(window, cx);
         });
+        // Docked by default — nothing to toggle on.
         vcx.run_until_parked();
 
         let (viewport, panel, docked) = app.update_in(&mut vcx, |app, window, cx| {
@@ -763,34 +781,36 @@ mod gpui_tests {
 
     /// The complaint in #625: opening a file must leave the terminal on screen.
     /// The column is half of what the terminal and the document share, and the
-    /// terminal's own laid-out area gives up exactly that width — which is what
-    /// makes the PTY reflow rather than hide half its columns under a card.
+    /// terminal's own laid-out area gives up exactly that height — which is
+    /// what makes the PTY reflow rather than hide half its rows under a card.
+    ///
+    /// The document docks above the terminal rather than beside it (so
+    /// reading a file never takes the width an 80-column prompt needs), which
+    /// is why this shares height with `document_body_px` rather than width.
     #[gpui::test]
-    fn opening_the_code_panel_docks_a_column_beside_the_terminal(cx: &mut TestAppContext) {
+    fn opening_the_code_panel_docks_a_column_above_the_terminal(cx: &mut TestAppContext) {
         let (app, mut vcx) = window(cx, 1440.);
-
-        app.update_in(&mut vcx, |app, window, cx| {
-            app.toggle_code_panel(window, cx);
-        });
+        // Docked by default — nothing to toggle on.
         vcx.run_until_parked();
 
         let body = app.update_in(&mut vcx, |app, window, cx| app.document_body_px(window, cx));
-        let docked = dock_px(&app, &mut vcx).expect("a 1440 window seats both");
+        let docked = dock_px(&app, &mut vcx).expect("a 900-tall window seats both");
         assert!(
             (docked - body / 2.).abs() < 0.5,
             "half the terminal column, not half the window: {docked} of {body}"
         );
 
-        // The terminal is laid out at what is left, not at the full width with
-        // a card over half of it. `pane_area` is the rectangle the grid sizes
-        // itself from, so this is the assertion the PTY reflow rests on.
+        // The terminal is laid out at what is left, not at the full height
+        // with a card over half of it. `pane_area` is the rectangle the grid
+        // sizes itself from, so this is the assertion the PTY reflow rests on.
+        // Its width is untouched — the document no longer takes width away.
         let pane = app
             .update_in(&mut vcx, |app, _, _| app.pane_area.get())
             .expect("the body area painted");
         assert!(
-            (pane.size.width.as_f32() - (body - docked)).abs() < 1.5,
-            "terminal laid out at {} of a {body} body beside a {docked} column",
-            pane.size.width.as_f32()
+            (pane.size.height.as_f32() - (body - docked)).abs() < 1.5,
+            "terminal laid out at {} of a {body} body below a {docked} column",
+            pane.size.height.as_f32()
         );
         assert!(pane.size.width.as_f32() >= TERMINAL_MIN_W);
     }
@@ -799,10 +819,7 @@ mod gpui_tests {
     #[gpui::test]
     fn closing_the_surface_gives_the_width_back(cx: &mut TestAppContext) {
         let (app, mut vcx) = window(cx, 1440.);
-        app.update_in(&mut vcx, |app, window, cx| {
-            app.toggle_code_panel(window, cx);
-        });
-        vcx.run_until_parked();
+        // Docked by default — nothing to toggle on.
         assert!(dock_px(&app, &mut vcx).is_some());
 
         app.update_in(&mut vcx, |app, window, cx| {
@@ -822,14 +839,17 @@ mod gpui_tests {
     }
 
     /// A window with no room for both falls back to the overlay for the frame
-    /// and leaves the saved layout alone. Widening re-docks with no command run
-    /// in between — the fallback is derived, not stored.
+    /// and leaves the saved layout alone. Heightening re-docks with no command
+    /// run in between — the fallback is derived, not stored.
+    ///
+    /// A short window rather than a narrow one: the document shares the
+    /// terminal column's *height* now, so it is the window's height, not its
+    /// width, that a floor can run out of room in.
     #[gpui::test]
-    fn a_narrow_window_falls_back_without_saving_it(cx: &mut TestAppContext) {
-        let (app, mut vcx) = window(cx, 560.);
-        app.update_in(&mut vcx, |app, window, cx| {
-            app.toggle_code_panel(window, cx);
-        });
+    fn a_short_window_falls_back_without_saving_it(cx: &mut TestAppContext) {
+        let (app, mut vcx) = window(cx, 1440.);
+        // Docked by default — nothing to toggle on.
+        vcx.simulate_resize(size(px(1440.), px(500.)));
         vcx.run_until_parked();
 
         assert_eq!(dock_px(&app, &mut vcx), None, "no room for both");
@@ -843,7 +863,7 @@ mod gpui_tests {
         vcx.run_until_parked();
         assert!(
             dock_px(&app, &mut vcx).is_some(),
-            "widening re-docks on the next frame"
+            "heightening re-docks on the next frame"
         );
         assert_eq!(layout(&mut vcx), DocumentLayout::Dock);
     }
@@ -854,9 +874,7 @@ mod gpui_tests {
     #[gpui::test]
     fn asking_to_fill_is_kept_and_a_named_width_docks_again(cx: &mut TestAppContext) {
         let (app, mut vcx) = window(cx, 560.);
-        app.update_in(&mut vcx, |app, window, cx| {
-            app.toggle_code_panel(window, cx);
-        });
+        // Docked by default — nothing to toggle on before asking for fill.
         app.update_in(&mut vcx, |app, _, cx| app.toggle_document_fill(cx));
         vcx.run_until_parked();
         assert_eq!(tab_layout(&app, &mut vcx), DocumentLayout::Fill);

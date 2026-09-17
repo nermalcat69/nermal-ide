@@ -286,6 +286,12 @@ pub(crate) struct CreateForm {
     /// (or nothing), picking another host refills it; one keystroke of the
     /// user's own and it is theirs.
     prefill: String,
+    /// The folder a local workspace is rooted at. Required for `chosen: None`
+    /// — a workspace with nowhere to put files is not a project, just an
+    /// empty shell the ordinary "+" already opens. A remote host resolves its
+    /// own root from the machine's home directory once connected (see the
+    /// comment on [`PendingCreate`]), so this stays `None` there.
+    folder: Option<std::path::PathBuf>,
 }
 
 /// A create the user asked for on a machine that was not connected yet: the
@@ -1196,6 +1202,7 @@ impl NermalApp {
                 sel: 0,
                 chosen,
                 prefill,
+                folder: None,
             });
             sw._subs.push(sub);
         }
@@ -1284,6 +1291,7 @@ impl NermalApp {
             form.chosen = chosen;
             form.open = false;
             form.sel = 0;
+            form.folder = None;
             let (host, name) = (form.host.clone(), form.name.clone());
             // A name the user has not touched follows the host; one they have
             // is theirs and stays.
@@ -1301,12 +1309,42 @@ impl NermalApp {
         cx.notify();
     }
 
+    /// Opens the native folder picker and stores the pick on the form. Only
+    /// meaningful for a local workspace — a remote one's root comes from the
+    /// machine's home directory once it connects, not from this window's
+    /// filesystem.
+    fn switcher_form_pick_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let rx = cx.prompt_for_paths(gpui::PathPromptOptions {
+            files: false,
+            directories: true,
+            multiple: false,
+            prompt: None,
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            let Ok(Ok(Some(mut paths))) = rx.await else {
+                return;
+            };
+            let Some(path) = paths.pop() else {
+                return;
+            };
+            let _ = this.update_in(cx, |this, _window, cx| {
+                if let Some(sw) = this.switcher.as_mut()
+                    && let Page::Create(form) = &mut sw.page
+                {
+                    form.folder = Some(path);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     /// Enter on the form. Local and already-connected machines create on the
     /// spot; a machine with no live link has to connect first — the create is
     /// parked on the app and `finish_connect` completes it, because only a
     /// live link knows the home directory a fresh workspace is rooted at.
     fn switcher_form_create(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let (name, chosen) = {
+        let (name, chosen, folder) = {
             let Some(sw) = self.switcher.as_ref() else {
                 return;
             };
@@ -1314,13 +1352,27 @@ impl NermalApp {
                 return;
             };
             let name = form.name.read(cx).value().trim().to_string();
-            ((!name.is_empty()).then_some(name), form.chosen.clone())
+            (
+                (!name.is_empty()).then_some(name),
+                form.chosen.clone(),
+                form.folder.clone(),
+            )
         };
+        // A local workspace with nowhere to put files is the empty shell the
+        // ordinary "+" already opens — send whoever hits Enter without one
+        // straight to the picker instead of creating it half-finished.
+        if chosen.is_none() && folder.is_none() {
+            self.switcher_form_pick_folder(window, cx);
+            return;
+        }
         match chosen {
             None => {
                 self.close_switcher(window, cx);
                 self.switch_workspace(None, window, cx);
                 self.name_fresh_workspace(name, window, cx);
+                if let Some(folder) = folder {
+                    self.new_tab_with_cwd(Some(folder), None, window, cx);
+                }
             }
             Some(choice) => match remote_connect::HostLinks::home(cx, choice.target.host_id()) {
                 Some(home) => {
@@ -2734,6 +2786,51 @@ impl NermalApp {
             )
             .child(host_block);
 
+        // Only a local workspace is rooted from this window's own filesystem —
+        // a remote one resolves its root from the machine's home directory
+        // once connected, so the row would ask for something it cannot use yet.
+        let folder_row = chosen_local.then(|| {
+            let folder_trigger = field(h_flex())
+                .id("switcher-form-folder")
+                .cursor_pointer()
+                .hover(move |r| r.bg(hover))
+                .child(
+                    gpui::svg()
+                        .path("icons/folder.svg")
+                        .flex_shrink_0()
+                        .size(px(12.))
+                        .text_color(muted),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .text_sm()
+                        .text_color(if form.folder.is_some() { fg } else { muted })
+                        .child(match &form.folder {
+                            Some(path) => path.display().to_string(),
+                            None => t(L10nKey::SwitcherFormChooseFolder).to_string(),
+                        }),
+                )
+                .on_click(cx.listener(|this, _, window, cx| {
+                    this.switcher_form_pick_folder(window, cx);
+                }));
+            h_flex()
+                .items_center()
+                .gap(px(8.))
+                .child(label_col(t(L10nKey::SwitcherFormFolder)))
+                .child(folder_trigger)
+        });
+
+        let footer_hint = if chosen_local && form.folder.is_none() {
+            t(L10nKey::SwitcherFormFolderRequiredHint)
+        } else {
+            match form.open {
+                true => t(L10nKey::SwitcherFormPickHint),
+                false => t(L10nKey::SwitcherFormCreateHint),
+            }
+        };
         let footer = h_flex()
             .items_center()
             .px(px(12.))
@@ -2742,10 +2839,7 @@ impl NermalApp {
             .border_color(border)
             .text_xs()
             .text_color(muted)
-            .child(match form.open {
-                true => t(L10nKey::SwitcherFormPickHint),
-                false => t(L10nKey::SwitcherFormCreateHint),
-            });
+            .child(footer_hint);
 
         v_flex()
             .w(px(card_w))
@@ -2761,7 +2855,8 @@ impl NermalApp {
                     .p(px(12.))
                     .gap(px(10.))
                     .child(name_row)
-                    .child(host_row),
+                    .child(host_row)
+                    .children(folder_row),
             )
             .child(footer)
             .into_any_element()
