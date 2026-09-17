@@ -1085,9 +1085,23 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::PanelNoSessionHint => {
             "Open a tab to see its shell, directory, and processes here."
         }
-        L10nKey::PanelAgentsTitle => "Instances",
+        L10nKey::PanelAgentsTitle => "Terminal Instances",
         L10nKey::PanelAgentsNewInstance => "New Instance",
         L10nKey::PanelInstanceUnnamed => "Terminal",
+        L10nKey::PanelAllInstances => "All",
+        L10nKey::PanelNewCategory => "New Category",
+        L10nKey::PanelSearchTitle => "Search",
+        L10nKey::PanelSearching => "Searching…",
+        L10nKey::PanelSearchSummary => "{matches} results in {files} files",
+        L10nKey::PanelSearchTruncated => "stopped early",
+        L10nKey::PanelSearchEmpty => "No results",
+        L10nKey::PanelReplaceAll => "Replace All",
+        L10nKey::PanelUsageTitle => "Usage",
+        L10nKey::PanelUsageLoading => "Measuring…",
+        L10nKey::PanelUsageCpu => "CPU",
+        L10nKey::PanelUsageMemory => "Memory",
+        L10nKey::PanelUsageProcesses => "Processes",
+        L10nKey::PanelActivitySubtitle => "Activity",
         L10nKey::PanelNoAgents => "No terminal instances yet.",
         L10nKey::PanelNoAgentsHint => "Open one to see it here.",
         L10nKey::PanelFilesNowInSidebar => {
@@ -1516,6 +1530,8 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::CmdRightPanelChanges => "Right Panel: Changes",
         L10nKey::CmdRightPanelFiles => "Right Panel: Files",
         L10nKey::CmdRightPanelAgents => "Right Panel: Agents",
+        L10nKey::CmdRightPanelSearch => "Right Panel: Search",
+        L10nKey::CmdRightPanelUsage => "Right Panel: Usage",
         L10nKey::CmdChangeTheme => "Change Theme…",
         L10nKey::CmdResetFontSize => "Reset Font Size",
         L10nKey::CmdEnterFullScreen => "Enter Full Screen",

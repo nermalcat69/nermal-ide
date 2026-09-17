@@ -880,7 +880,7 @@ impl NermalApp {
     /// anyone a gutter, and holding a watch per open file would put a `status`
     /// probe behind every repository the user has visited this session.
     fn scm_editor_target(&self, cx: &gpui::App) -> Option<(HostId, PathBuf)> {
-        let code = self.tabs.get(self.active)?.code.as_ref()?;
+        let code = self.code.as_ref()?;
         if !code.visible {
             return None;
         }

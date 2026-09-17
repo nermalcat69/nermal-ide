@@ -111,13 +111,18 @@ impl NermalApp {
     /// a tab that has never opened a file gets the dock anyway, with its
     /// "open a file from the left sidebar" message, so the column is there
     /// before anyone knows to look for it. `document_dismissed` is the one
-    /// thing that turns that default off (see its doc on `Tab`).
+    /// thing that turns that default off (see its doc on `NermalApp`).
+    ///
+    /// `code`/`document_dismissed` are read straight off `self` rather than
+    /// off the tab: the editor is one thing for the whole window now, not one
+    /// per tab, so which tab is active only decides which *diff* might be in
+    /// front of it.
     pub(crate) fn document_front(&self) -> Option<OverlayTop> {
         let tab = self.tabs.get(self.active)?;
-        let code = tab.code.as_ref().is_some_and(|c| c.visible);
+        let code = self.code.as_ref().is_some_and(|c| c.visible);
         let diff = tab.diff_overlay.is_some();
         match (tab.overlay_top, code, diff) {
-            (_, false, false) => (!tab.document_dismissed).then_some(OverlayTop::Code),
+            (_, false, false) => (!self.document_dismissed).then_some(OverlayTop::Code),
             (OverlayTop::Code, true, _) | (OverlayTop::Diff, true, false) => Some(OverlayTop::Code),
             (OverlayTop::Diff, _, true) | (OverlayTop::Code, false, true) => Some(OverlayTop::Diff),
         }

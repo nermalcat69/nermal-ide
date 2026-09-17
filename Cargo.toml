@@ -55,6 +55,13 @@ memchr = "2"
 # emoji, and half a flag renders as a bare letter. Already in the tree via
 # gpui, so this pins no new code.
 unicode-segmentation = "1"
+# Gitignore-aware directory walk for the search panel's find-in-files.
+# Already in the tree via `nermal-core`'s file tree walk, so this pins no new
+# code.
+ignore = "0.4"
+# Per-process CPU/memory for the usage panel. Already resolved in the tree
+# (a transitive dependency already builds it), so this pins no new code.
+sysinfo = "0.31"
 # Column widths for the input bar (`terminal::view`). The bar has to lay text
 # out the way the terminal grid will, and the grid gets its widths from this
 # same crate by way of `alacritty_terminal` — a hand-rolled code-point table

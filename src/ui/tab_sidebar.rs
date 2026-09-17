@@ -1618,13 +1618,144 @@ impl NermalApp {
                     // ponytail: the ~1200 lines above that build `list`
                     // (grouping, drag-drop, rename) now run for a value
                     // nothing renders — worth trimming once this settles.
-                    .child(self.render_sidebar_file_tree(window, cx)),
+                    .child(self.render_sidebar_file_tree(window, cx))
+                    .child(self.render_sidebar_scm(window, cx)),
             )
             .child(handle)
             .child(crate::ui::app::hover_sheet(
                 "sidebar-chrome-hover",
                 &self.sidebar_chrome_hover,
             ))
+    }
+
+    /// Source control, fixed to the bottom of the sidebar under the file
+    /// explorer — it used to be a right-panel tab of its own; now the left
+    /// side is the project (files, and what git says about them) and the
+    /// right is the terminals working on it.
+    ///
+    /// Reuses the exact same panel body the right panel used to host: on
+    /// macOS `panel_title` never draws the right panel's own tab-tile row
+    /// (that chrome lives in the panel's title bar there, not inline), so
+    /// nothing about calling it from here pulls in chrome that belongs to a
+    /// different column.
+    fn render_sidebar_scm(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        if self.tabs.get(self.active).is_none() {
+            return div().into_any_element();
+        }
+        let height = self.sidebar_scm_height.get();
+        let (backing, handle) = self.sidebar_scm_resize(cx);
+        v_flex()
+            .id("sidebar-scm-section")
+            .relative()
+            .flex_none()
+            .h(px(height))
+            .overflow_hidden()
+            .border_t_1()
+            .border_color(cx.theme().sidebar_border)
+            .child(backing)
+            .child(
+                v_flex()
+                    .flex_1()
+                    .min_h_0()
+                    .w_full()
+                    .child(self.render_panel_scm(window, cx)),
+            )
+            .child(handle)
+            .into_any_element()
+    }
+
+    /// The drag handle on the section's top edge — the one edge it has, since
+    /// the bottom is the sidebar's own bottom. Dragging up grows it, the same
+    /// contract `document_resize` and the sidebar's own width handle use:
+    /// live in a cell while dragging, written to the config once on release.
+    fn sidebar_scm_resize(&self, cx: &mut Context<Self>) -> (AnyElement, AnyElement) {
+        use gpui::{Bounds, MouseButton, MouseMoveEvent, MouseUpEvent, Pixels, canvas};
+
+        const MIN_H: f32 = 120.;
+
+        let container: Rc<Cell<Option<Bounds<Pixels>>>> = Rc::new(Cell::new(None));
+        let backing = canvas(
+            {
+                let container = container.clone();
+                move |bounds, _window, _cx| container.set(Some(bounds))
+            },
+            {
+                let container = container.clone();
+                let height_cell = self.sidebar_scm_height.clone();
+                let dragging = self.sidebar_scm_dragging.clone();
+                move |_bounds, _state, window, _cx| {
+                    window.on_mouse_event({
+                        let container = container.clone();
+                        let height_cell = height_cell.clone();
+                        let dragging = dragging.clone();
+                        move |ev: &MouseMoveEvent, _phase, window, _cx| {
+                            if !dragging.get() {
+                                return;
+                            }
+                            let Some(b) = container.get() else {
+                                return;
+                            };
+                            let bottom = b.origin.y + b.size.height;
+                            let raw = (bottom - ev.position.y).as_f32();
+                            height_cell.set(raw.max(MIN_H));
+                            window.refresh();
+                        }
+                    });
+                    window.on_mouse_event({
+                        let height_cell = height_cell.clone();
+                        let dragging = dragging.clone();
+                        move |_ev: &MouseUpEvent, _phase, window, cx| {
+                            if !dragging.get() {
+                                return;
+                            }
+                            dragging.set(false);
+                            let h = height_cell.get();
+                            let cfg = cx.global_mut::<Config>();
+                            if cfg.sidebar_scm_height != h {
+                                cfg.sidebar_scm_height = h;
+                                cfg.save();
+                            }
+                            window.refresh();
+                        }
+                    });
+                }
+            },
+        )
+        .absolute()
+        .size_full()
+        .into_any_element();
+
+        let active = self.sidebar_scm_dragging.get();
+        let handle = div()
+            .id("sidebar-scm-resize")
+            .group("sidebar-scm-resize")
+            .occlude()
+            .absolute()
+            .left_0()
+            .top(px(-(RESIZE_HANDLE_WIDTH / 2.)))
+            .h(px(RESIZE_HANDLE_WIDTH))
+            .w_full()
+            .flex()
+            .items_center()
+            .justify_center()
+            .cursor_row_resize()
+            .child(
+                div()
+                    .h(px(1.))
+                    .w_full()
+                    .when(active, |d| d.bg(cx.theme().drag_border))
+                    .group_hover("sidebar-scm-resize", |s| s.bg(cx.theme().drag_border)),
+            )
+            .on_mouse_down(MouseButton::Left, {
+                let dragging = self.sidebar_scm_dragging.clone();
+                move |_ev, window, _cx| {
+                    dragging.set(true);
+                    window.refresh();
+                }
+            })
+            .into_any_element();
+
+        (backing, handle)
     }
 
     /// The attached folder's files, right under the tab list — the tree used

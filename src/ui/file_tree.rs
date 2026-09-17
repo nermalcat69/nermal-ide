@@ -829,9 +829,8 @@ impl NermalApp {
 
     fn file_tree_sync_watch(&mut self, host: SharedHost, cx: &mut Context<Self>) {
         let union: HashSet<PathBuf> = self
-            .tabs
+            .code
             .iter()
-            .filter_map(|t| t.code.as_deref())
             .flat_map(|c| c.roots.iter().chain(c.expanded.iter()).cloned())
             .collect();
         if union != self.file_tree.watched {

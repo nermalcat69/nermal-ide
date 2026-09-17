@@ -337,21 +337,39 @@ fn settle_save(ok: bool, wrote_seq: u64, current_seq: u64, pending: bool) -> Sav
 }
 
 impl NermalApp {
+    /// One editor for the whole window, not one per tab — see `NermalApp::code`'s
+    /// doc. `tab_code*` keep their names (every caller already reads through
+    /// them) even though nothing here reads `self.tabs` any more; renaming them
+    /// on top of everything else this change touches would be churn with no
+    /// behaviour behind it.
     pub(crate) fn tab_code(&self) -> Option<&TabCode> {
-        self.tabs.get(self.active)?.code.as_deref()
+        self.code.as_deref()
     }
 
     pub(crate) fn tab_code_mut(&mut self) -> Option<&mut TabCode> {
-        self.tabs.get_mut(self.active)?.code.as_deref_mut()
+        self.code.as_deref_mut()
     }
 
     pub(crate) fn tab_code_mut_or_init(&mut self) -> Option<&mut TabCode> {
-        let tab = self.tabs.get_mut(self.active)?;
-        Some(tab.code.get_or_insert_with(|| Box::new(TabCode::new())))
+        if self.tabs.get(self.active).is_none() {
+            return None;
+        }
+        Some(self.code.get_or_insert_with(|| Box::new(TabCode::new())))
     }
 
     pub(crate) fn code_panel_visible(&self) -> bool {
         self.tab_code().is_some_and(|c| c.visible)
+    }
+
+    /// Every file open anywhere — there is one editor now, so this is just
+    /// `self.code`'s files, but kept as its own name at the several call
+    /// sites that used to have to search every tab for it.
+    fn all_open_files(&self) -> impl Iterator<Item = &OpenFile> {
+        self.code.iter().flat_map(|c| c.files.iter())
+    }
+
+    fn all_open_files_mut(&mut self) -> impl Iterator<Item = &mut OpenFile> {
+        self.code.iter_mut().flat_map(|c| c.files.iter_mut())
     }
 
     fn editor_rebuild_watcher(&mut self, cx: &mut Context<Self>) {
@@ -367,10 +385,7 @@ impl NermalApp {
         // save, which the conflict banner does not have yet.
         let watch_host = self.spawn_host(cx);
         let files: HashSet<PathBuf> = self
-            .tabs
-            .iter()
-            .filter_map(|t| t.code.as_deref())
-            .flat_map(|c| c.files.iter())
+            .all_open_files()
             .filter(|f| f.host.id() == watch_host)
             .map(|f| f.path.clone())
             .collect();
@@ -744,10 +759,7 @@ impl NermalApp {
             move |this: &mut NermalApp, input, ev, window, cx| {
                 if matches!(ev, InputEvent::Change) {
                     let Some(f) = this
-                        .tabs
-                        .iter_mut()
-                        .filter_map(|t| t.code.as_deref_mut())
-                        .flat_map(|c| c.files.iter_mut())
+                        .all_open_files_mut()
                         .find(|f| f.host.id() == host_id && f.path == path)
                     else {
                         return;
@@ -761,11 +773,7 @@ impl NermalApp {
                 }
             }
         });
-        let tab = self
-            .tabs
-            .get_mut(self.active)
-            .expect("checked at function entry");
-        let code = tab.code.get_or_insert_with(|| Box::new(TabCode::new()));
+        let code = self.code.get_or_insert_with(|| Box::new(TabCode::new()));
         let observe = cx.observe(&input, |_, _, cx| cx.notify());
         code.files.insert(
             0,
@@ -816,9 +824,9 @@ impl NermalApp {
             cx.notify();
             return;
         }
-        let Some(tab) = self.tabs.get_mut(self.active) else {
+        if self.tabs.get(self.active).is_none() {
             return;
-        };
+        }
         if showing_code {
             // `document_dismissed` rather than only `code.visible = false`:
             // a tab with no file open was never explicitly "opened" in the
@@ -826,17 +834,17 @@ impl NermalApp {
             // the default has to be turned off somewhere that survives an
             // unrelated `TabCode` getting created later (pinning a root,
             // tracking one) without silently popping the empty state back.
-            if let Some(code) = tab.code.as_mut() {
+            if let Some(code) = self.code.as_mut() {
                 code.visible = false;
             }
-            tab.document_dismissed = true;
+            self.document_dismissed = true;
             self.file_tree.editing = None;
             self.focus_active(window, cx);
             cx.notify();
             return;
         }
-        tab.document_dismissed = false;
-        let code = tab.code.get_or_insert_with(|| Box::new(TabCode::new()));
+        self.document_dismissed = false;
+        let code = self.code.get_or_insert_with(|| Box::new(TabCode::new()));
         code.visible = true;
         self.file_tree_refresh_roots(window, cx);
         if self.tab_code().is_some_and(|c| c.active_file().is_some()) {
@@ -999,8 +1007,8 @@ impl NermalApp {
                 let close = app
                     .editor_file_mut(id)
                     .is_some_and(|f| std::mem::take(&mut f.save_then_close) && !f.dirty);
-                if close && let Some((tab_ix, ix)) = app.editor_file_position(id) {
-                    app.editor_remove_file_in(tab_ix, ix, cx);
+                if close && let Some(ix) = app.editor_file_position(id) {
+                    app.editor_remove_file_in(ix, cx);
                 }
                 cx.notify();
             },
@@ -1009,19 +1017,15 @@ impl NermalApp {
     }
 
     fn editor_file_mut(&mut self, id: gpui::EntityId) -> Option<&mut OpenFile> {
-        self.tabs
-            .iter_mut()
-            .filter_map(|t| t.code.as_deref_mut())
-            .flat_map(|c| c.files.iter_mut())
-            .find(|f| f.input.entity_id() == id)
+        self.all_open_files_mut().find(|f| f.input.entity_id() == id)
     }
 
-    fn editor_file_position(&self, id: gpui::EntityId) -> Option<(usize, usize)> {
-        self.tabs.iter().enumerate().find_map(|(tab_ix, t)| {
-            let code = t.code.as_deref()?;
-            let ix = code.files.iter().position(|f| f.input.entity_id() == id)?;
-            Some((tab_ix, ix))
-        })
+    fn editor_file_position(&self, id: gpui::EntityId) -> Option<usize> {
+        self.code
+            .as_deref()?
+            .files
+            .iter()
+            .position(|f| f.input.entity_id() == id)
     }
 
     pub(crate) fn editor_close_file(
@@ -1062,8 +1066,8 @@ impl NermalApp {
             let _ = app.update_in(cx, |app, window, cx| match choice {
                 0 => app.editor_save_file(id, true, window, cx),
                 2 => {
-                    if let Some((tab_ix, ix)) = app.editor_file_position(id) {
-                        app.editor_remove_file_in(tab_ix, ix, cx);
+                    if let Some(ix) = app.editor_file_position(id) {
+                        app.editor_remove_file_in(ix, cx);
                     }
                 }
                 _ => {}
@@ -1094,15 +1098,11 @@ impl NermalApp {
     }
 
     fn editor_remove_file(&mut self, ix: usize, cx: &mut Context<Self>) {
-        self.editor_remove_file_in(self.active, ix, cx);
+        self.editor_remove_file_in(ix, cx);
     }
 
-    fn editor_remove_file_in(&mut self, tab_ix: usize, ix: usize, cx: &mut Context<Self>) {
-        let Some(code) = self
-            .tabs
-            .get_mut(tab_ix)
-            .and_then(|t| t.code.as_deref_mut())
-        else {
+    fn editor_remove_file_in(&mut self, ix: usize, cx: &mut Context<Self>) {
+        let Some(code) = self.code.as_deref_mut() else {
             return;
         };
         if ix >= code.files.len() {
@@ -1147,12 +1147,9 @@ impl NermalApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let mut reload: Vec<(usize, usize)> = Vec::new();
+        let mut reload: Vec<usize> = Vec::new();
         let mut changed = false;
-        for (tab_ix, tab) in self.tabs.iter_mut().enumerate() {
-            let Some(code) = tab.code.as_deref_mut() else {
-                continue;
-            };
+        if let Some(code) = self.code.as_deref_mut() {
             for (ix, f) in code.files.iter_mut().enumerate() {
                 if f.host.id() != host || f.path != *path {
                     continue;
@@ -1163,12 +1160,12 @@ impl NermalApp {
                         f.conflict = true;
                         changed = true;
                     }
-                    ExternalChange::Reload => reload.push((tab_ix, ix)),
+                    ExternalChange::Reload => reload.push(ix),
                 }
             }
         }
-        for (tab_ix, ix) in reload {
-            self.editor_reload_from_disk(tab_ix, ix, window, cx);
+        for ix in reload {
+            self.editor_reload_from_disk(ix, window, cx);
         }
         if changed {
             cx.notify();
@@ -1177,17 +1174,11 @@ impl NermalApp {
 
     pub(crate) fn editor_reload_from_disk(
         &mut self,
-        tab_ix: usize,
         ix: usize,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(f) = self
-            .tabs
-            .get_mut(tab_ix)
-            .and_then(|t| t.code.as_deref_mut())
-            .and_then(|c| c.files.get_mut(ix))
-        else {
+        let Some(f) = self.code.as_deref_mut().and_then(|c| c.files.get_mut(ix)) else {
             return;
         };
         let target = f.path.clone();
@@ -1542,10 +1533,7 @@ impl NermalApp {
                             this.update_config(cx, |cfg| cfg.editor_auto_save = on);
                             if on {
                                 let ids: Vec<gpui::EntityId> = this
-                                    .tabs
-                                    .iter()
-                                    .filter_map(|t| t.code.as_deref())
-                                    .flat_map(|c| c.files.iter())
+                                    .all_open_files()
                                     .filter(|f| f.dirty && !f.conflict)
                                     .map(|f| f.input.entity_id())
                                     .collect();
@@ -1581,7 +1569,6 @@ impl NermalApp {
     }
 
     fn render_editor_conflict_banner(&self, cx: &mut Context<Self>) -> AnyElement {
-        let tab_ix = self.active;
         let ix = self.tab_code().map(|c| c.active).unwrap_or(0);
         h_flex()
             .flex_none()
@@ -1602,7 +1589,7 @@ impl NermalApp {
                     .label(crate::ui::i18n::t(crate::ui::i18n::L10nKey::Reload))
                     .small()
                     .on_click(cx.listener(move |this, _, window, cx| {
-                        this.editor_reload_from_disk(tab_ix, ix, window, cx);
+                        this.editor_reload_from_disk(ix, window, cx);
                     })),
             )
             .child(

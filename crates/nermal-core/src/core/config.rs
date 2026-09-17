@@ -181,6 +181,11 @@ pub struct Config {
     pub sidebar_width: f32,
     #[serde(default)]
     pub sidebar_collapsed: bool,
+    /// How tall the source-control section at the bottom of the sidebar is,
+    /// above the file explorer it shares the column with. Dragged like the
+    /// sidebar's own width, just on the other axis.
+    #[serde(default = "default_sidebar_scm_height")]
+    pub sidebar_scm_height: f32,
     #[serde(default)]
     pub right_panel_visible: bool,
     #[serde(default = "default_right_panel_width")]
@@ -628,6 +633,7 @@ impl Default for Config {
             tab_bar_position: TabBarPosition::Left,
             sidebar_width: default_sidebar_width(),
             sidebar_collapsed: false,
+            sidebar_scm_height: default_sidebar_scm_height(),
             right_panel_visible: false,
             right_panel_width: default_right_panel_width(),
             right_panel_tab: RightPanelTab::Agents,
@@ -810,6 +816,10 @@ impl Config {
             self.sidebar_width = default_sidebar_width();
         }
         self.sidebar_width = self.sidebar_width.clamp(100.0, 2000.0);
+        if !self.sidebar_scm_height.is_finite() || self.sidebar_scm_height <= 0.0 {
+            self.sidebar_scm_height = default_sidebar_scm_height();
+        }
+        self.sidebar_scm_height = self.sidebar_scm_height.clamp(120.0, 2000.0);
         if !self.right_panel_width.is_finite() || self.right_panel_width <= 0.0 {
             self.right_panel_width = default_right_panel_width();
         }
@@ -1108,6 +1118,11 @@ pub enum RightPanelTab {
     /// panes, one row per agent terminal. An older build that reads this back
     /// falls through `de_lenient` to `Info` rather than failing outright.
     Agents,
+    /// Find (and replace) across the workspace's local files.
+    Search,
+    /// CPU and memory used by the local daemon and everything it has spawned
+    /// for this workspace.
+    Usage,
 }
 
 /// What opens when a file link in the grid is clicked.
@@ -1204,6 +1219,13 @@ fn default_ui_font_size() -> f32 {
 
 fn default_sidebar_width() -> f32 {
     220.0
+}
+
+/// 260px scaled up 30% and rounded — the height the section used to launch
+/// at read as cramped for a working tree with more than a couple of files in
+/// it.
+fn default_sidebar_scm_height() -> f32 {
+    340.0
 }
 
 pub const MAX_SCROLLBACK: usize = 100_000;

@@ -801,6 +801,20 @@ l10n_keys! {
     PanelAgentsTitle,
     PanelAgentsNewInstance,
     PanelInstanceUnnamed,
+    PanelAllInstances,
+    PanelNewCategory,
+    PanelSearchTitle,
+    PanelSearching,
+    PanelSearchSummary,
+    PanelSearchTruncated,
+    PanelSearchEmpty,
+    PanelReplaceAll,
+    PanelUsageTitle,
+    PanelUsageLoading,
+    PanelUsageCpu,
+    PanelUsageMemory,
+    PanelUsageProcesses,
+    PanelActivitySubtitle,
     PanelNoAgents,
     PanelNoAgentsHint,
     PanelFilesNowInSidebar,
@@ -1232,6 +1246,8 @@ l10n_keys! {
     CmdRightPanelChanges,
     CmdRightPanelFiles,
     CmdRightPanelAgents,
+    CmdRightPanelSearch,
+    CmdRightPanelUsage,
     CmdChangeTheme,
     CmdResetFontSize,
     CmdEnterFullScreen,
@@ -1619,6 +1635,8 @@ mod tests {
             // and no locale renames either.
             L10nKey::PanelShell,
             L10nKey::PanelSsh,
+            // An initialism every locale reads the same way.
+            L10nKey::PanelUsageCpu,
             // The zh copy calls the background process "server" throughout —
             // this heading is that word on its own.
             L10nKey::SettingsServer,

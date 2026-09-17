@@ -1149,9 +1149,23 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::PanelNoSessionHint => {
             "タブを開くと、そのシェル、ディレクトリ、プロセスがここに表示されます"
         }
-        L10nKey::PanelAgentsTitle => "インスタンス",
+        L10nKey::PanelAgentsTitle => "ターミナルインスタンス",
         L10nKey::PanelAgentsNewInstance => "新しいインスタンス",
         L10nKey::PanelInstanceUnnamed => "ターミナル",
+        L10nKey::PanelAllInstances => "すべて",
+        L10nKey::PanelNewCategory => "新しいカテゴリ",
+        L10nKey::PanelSearchTitle => "検索",
+        L10nKey::PanelSearching => "検索中…",
+        L10nKey::PanelSearchSummary => "{files}個のファイルで{matches}件の一致",
+        L10nKey::PanelSearchTruncated => "途中で停止しました",
+        L10nKey::PanelSearchEmpty => "結果がありません",
+        L10nKey::PanelReplaceAll => "すべて置換",
+        L10nKey::PanelUsageTitle => "使用状況",
+        L10nKey::PanelUsageLoading => "測定中…",
+        L10nKey::PanelUsageCpu => "CPU",
+        L10nKey::PanelUsageMemory => "メモリ",
+        L10nKey::PanelUsageProcesses => "プロセス",
+        L10nKey::PanelActivitySubtitle => "アクティビティ",
         L10nKey::PanelNoAgents => "ターミナルインスタンスはまだありません",
         L10nKey::PanelNoAgentsHint => "開くとここに表示されます",
         L10nKey::PanelFilesNowInSidebar => {
@@ -1579,6 +1593,8 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::CmdRightPanelChanges => "右パネル: 変更",
         L10nKey::CmdRightPanelFiles => "右パネル: ファイル",
         L10nKey::CmdRightPanelAgents => "右パネル: エージェント",
+        L10nKey::CmdRightPanelSearch => "右パネル: 検索",
+        L10nKey::CmdRightPanelUsage => "右パネル: 使用状況",
         L10nKey::CmdChangeTheme => "テーマを変更…",
         L10nKey::CmdResetFontSize => "フォントサイズをリセット",
         L10nKey::CmdEnterFullScreen => "全画面表示",

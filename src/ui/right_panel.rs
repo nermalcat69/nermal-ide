@@ -1,6 +1,6 @@
 use gpui::{AnyElement, Context, Focusable as _, Window, div, prelude::*, px, rems};
 use gpui_component::button::Button;
-use gpui_component::input::Input;
+use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::{
     ActiveTheme as _, Icon, IconName, InteractiveElementExt as _, Sizable as _, WindowExt as _,
     h_flex, v_flex,
@@ -154,6 +154,29 @@ pub(crate) const SEARCH_H: f32 = 30.;
 
 #[derive(Default)]
 pub(crate) struct RightPanelState {
+    /// The category the Instances tab is filtered to — `None` is "All".
+    /// Categories are custom sidebar groups, the same ones the old tab
+    /// sidebar let you name; this just reuses them as tabs of their own
+    /// instead of headers in a list.
+    pub(crate) instances_category: Option<crate::core::group_key::GroupKey>,
+    /// The name box for a new category, shown in place of the "+" tile while
+    /// it is open. Creating a category and creating an instance are the same
+    /// action here: there is nowhere for an empty category to live, so
+    /// naming one immediately spawns the first instance in it.
+    pub(crate) instances_new_category: Option<gpui::Entity<InputState>>,
+    instances_new_category_sub: Option<gpui::Subscription>,
+    /// The last CPU%/memory reading for the Usage tab, and whether a refresh
+    /// loop is already running — started the first time the tab is shown,
+    /// not eagerly, so a window that never opens it never pays for sampling
+    /// `sysinfo` was not asked to do.
+    pub(crate) usage: Option<WorkspaceUsage>,
+    pub(crate) usage_watching: bool,
+    /// The lines-changed-per-day heatmap's cache, keyed by which repository
+    /// it was built for so a tab switch to a different repo re-fetches
+    /// instead of showing the last one's graph under the new one's name.
+    pub(crate) heatmap: Option<Vec<crate::ui::git_heatmap::HeatmapMonth>>,
+    pub(crate) heatmap_root: Option<PathBuf>,
+    pub(crate) heatmap_loading: bool,
     pub(crate) procs_pane: Option<u64>,
     pub(crate) procs: Option<PaneProcs>,
     pub(crate) procs_loading: bool,
@@ -219,6 +242,69 @@ const PROCS_POLL: std::time::Duration = std::time::Duration::from_millis(2000);
 /// extra seconds nobody can feel, against a query that crosses the network on
 /// every remote pane.
 const PORT_WATCH_POLL: std::time::Duration = std::time::Duration::from_millis(5000);
+
+/// How often the Usage tab re-samples `sysinfo` while it is on screen. CPU
+/// percentages from `sysinfo` are only meaningful between two refreshes a
+/// moment apart, so this is also the minimum the number can react in.
+const USAGE_POLL: std::time::Duration = std::time::Duration::from_millis(2000);
+
+/// One CPU/memory reading for the local daemon and everything under it.
+#[derive(Clone, Copy)]
+pub(crate) struct WorkspaceUsage {
+    pub(crate) cpu_percent: f32,
+    pub(crate) memory_bytes: u64,
+    pub(crate) process_count: usize,
+}
+
+/// One `System`, kept for the process's whole life rather than rebuilt per
+/// sample. `sysinfo`'s CPU percentages are a delta since the *last* refresh
+/// of this same instance — a fresh `System` every call would read 0% forever,
+/// having nothing to compare against.
+fn workspace_usage_system() -> &'static std::sync::Mutex<sysinfo::System> {
+    static SYS: std::sync::OnceLock<std::sync::Mutex<sysinfo::System>> = std::sync::OnceLock::new();
+    SYS.get_or_init(|| std::sync::Mutex::new(sysinfo::System::new_all()))
+}
+
+/// The daemon's own usage plus every process it has spawned, walked from
+/// `sysinfo`'s full table by parent pointer since the platform gives no
+/// direct "children of" query. One snapshot of the whole system's process
+/// list is the cost of asking that question at all; `USAGE_POLL` is what
+/// keeps it to once every couple of seconds rather than once a frame.
+fn sample_workspace_usage() -> Option<WorkspaceUsage> {
+    use sysinfo::Pid;
+    let daemon_pid = nermal_core::daemon::pidfile::read()?;
+    let mut sys = workspace_usage_system().lock().ok()?;
+    sys.refresh_all();
+    let root = Pid::from_u32(daemon_pid);
+    sys.process(root)?;
+    let mut by_parent: std::collections::HashMap<Pid, Vec<Pid>> = std::collections::HashMap::new();
+    for (pid, proc_) in sys.processes() {
+        if let Some(parent) = proc_.parent() {
+            by_parent.entry(parent).or_default().push(*pid);
+        }
+    }
+    let mut stack = vec![root];
+    let mut seen = std::collections::HashSet::new();
+    let mut cpu_percent = 0.0;
+    let mut memory_bytes = 0u64;
+    while let Some(pid) = stack.pop() {
+        if !seen.insert(pid) {
+            continue;
+        }
+        if let Some(proc_) = sys.process(pid) {
+            cpu_percent += proc_.cpu_usage();
+            memory_bytes += proc_.memory();
+        }
+        if let Some(children) = by_parent.get(&pid) {
+            stack.extend(children.iter().copied());
+        }
+    }
+    Some(WorkspaceUsage {
+        cpu_percent,
+        memory_bytes,
+        process_count: seen.len(),
+    })
+}
 
 /// How many newly-seen ports one poll may forward. A dev server brings up one
 /// or two; a number this side of a dozen is a process opening listeners in a
@@ -447,6 +533,8 @@ impl NermalApp {
             RightPanelTab::Scm => self.render_panel_scm(window, cx),
             RightPanelTab::Files => self.render_panel_files(window, cx),
             RightPanelTab::Agents => self.render_panel_agents(window, cx),
+            RightPanelTab::Search => self.render_panel_search(window, cx),
+            RightPanelTab::Usage => self.render_panel_usage(window, cx),
         };
         let (backing, handle) = self.right_panel_resize(cx);
 
@@ -778,6 +866,10 @@ impl NermalApp {
         // off in both places rather than in one of them.
         let mut diff_target: Option<(crate::ui::host_ops::HostId, PathBuf)> = None;
         let mut git: Option<crate::terminal::git_status::GitStatus> = None;
+        // Local only — the heatmap runs `git log` as a subprocess on this
+        // machine, which has nothing to say about a repository that lives on
+        // the other end of an SSH pane.
+        let mut heatmap_root: Option<PathBuf> = None;
 
         if let Some(tab) = self.tabs.get(self.active) {
             if let Some(leaf) = tab.detail_pane(window, cx) {
@@ -788,6 +880,14 @@ impl NermalApp {
                     view.git_status_cwd()
                         .map(|cwd| (view.host_id(), cwd.to_path_buf())),
                 );
+                if view.host_id().is_local()
+                    && let Some(cwd) = view.git_status_cwd()
+                    && let Some(cache) = cx.try_global::<crate::terminal::git_status::GitStatusCache>()
+                {
+                    heatmap_root = cache
+                        .repo_root_for(view.host_id(), cwd)
+                        .map(|p| p.to_path_buf());
+                }
                 if let Some(cwd) = view.effective_cwd() {
                     let home = view.display_home(cx);
                     // Whether this pane's paths are this machine's decides
@@ -887,6 +987,7 @@ impl NermalApp {
             .child(list)
             .children(self.procs_section(pane_id, cx))
             .children(self.ports_section(ctx.as_ref(), cx))
+            .children(self.heatmap_section(heatmap_root.as_deref(), cx))
             .into_any_element();
         self.panel_scroll(inner, title)
     }
@@ -1793,6 +1894,79 @@ impl NermalApp {
         )
     }
 
+    /// CPU and memory for the local daemon and everything it has spawned —
+    /// starts its own refresh loop the first time this tab is drawn, so a
+    /// window that never opens it never pays `sysinfo` a cent.
+    fn render_panel_usage(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        let title = self.panel_title(t(L10nKey::PanelUsageTitle), None, None, window, cx);
+        if !self.right_panel.usage_watching {
+            self.right_panel.usage_watching = true;
+            cx.spawn_in(window, async move |this, cx| {
+                loop {
+                    let sample = cx.background_spawn(async { sample_workspace_usage() }).await;
+                    let alive = this
+                        .update(cx, |this, cx| {
+                            let stop = !(this.right_panel_visible
+                                && this.right_panel_tab == RightPanelTab::Usage);
+                            if stop {
+                                this.right_panel.usage_watching = false;
+                                return false;
+                            }
+                            this.right_panel.usage = sample;
+                            cx.notify();
+                            true
+                        })
+                        .unwrap_or(false);
+                    if !alive {
+                        return;
+                    }
+                    cx.background_executor().timer(USAGE_POLL).await;
+                }
+            })
+            .detach();
+        }
+        let body = match self.right_panel.usage {
+            None => self.panel_empty(t(L10nKey::PanelUsageLoading), None, cx),
+            Some(usage) => {
+                let mb = usage.memory_bytes as f64 / (1024. * 1024.);
+                v_flex()
+                    .px(px(CONTENT_INSET - ROW_INSET))
+                    .py(px(4.))
+                    .gap(px(10.))
+                    .child(self.usage_stat(t(L10nKey::PanelUsageCpu), format!("{:.1}%", usage.cpu_percent), cx))
+                    .child(self.usage_stat(t(L10nKey::PanelUsageMemory), format!("{mb:.0} MB"), cx))
+                    .child(self.usage_stat(
+                        t(L10nKey::PanelUsageProcesses),
+                        usage.process_count.to_string(),
+                        cx,
+                    ))
+                    .into_any_element()
+            }
+        };
+        self.panel_scroll(body, title)
+    }
+
+    fn usage_stat(&self, label: &str, value: String, cx: &mut Context<Self>) -> AnyElement {
+        h_flex()
+            .items_baseline()
+            .justify_between()
+            .px(px(ROW_INSET))
+            .child(
+                div()
+                    .text_size(rems(TEXT))
+                    .text_color(cx.theme().muted_foreground)
+                    .child(label.to_string()),
+            )
+            .child(
+                div()
+                    .text_size(rems(TEXT))
+                    .font_family(cx.theme().mono_font_family.clone())
+                    .text_color(cx.theme().foreground)
+                    .child(value),
+            )
+            .into_any_element()
+    }
+
     /// One row per terminal pane, across every tab of this workspace, that is
     /// running a CLI coding agent — the right sidebar's answer to "what is
     /// working right now", where the sidebar's own badges only ever say that
@@ -1812,7 +1986,13 @@ impl NermalApp {
         )
         .rounded_md()
         .tooltip(t(L10nKey::PanelAgentsNewInstance))
-        .on_click(cx.listener(|this, _, window, cx| this.new_tab(window, cx)))
+        .on_click(cx.listener(|this, _, window, cx| {
+            let category = this.right_panel.instances_category.clone();
+            this.new_tab(window, cx);
+            if let Some(category) = category {
+                this.set_tab_group(this.active, Some(category), cx);
+            }
+        }))
         .into_any_element();
         let title = self.panel_title(
             t(L10nKey::PanelAgentsTitle),
@@ -1828,9 +2008,14 @@ impl NermalApp {
             agent: Option<crate::core::cli_agent::CLIAgent>,
             status: Option<crate::core::cli_agent::AgentStatus>,
             unread: bool,
+            category: Option<crate::core::group_key::GroupKey>,
         }
         let mut rows = Vec::new();
         for (tab_index, tab) in self.tabs.iter().enumerate() {
+            let category = match &*tab.sidebar_group.borrow() {
+                Some(key @ crate::core::group_key::GroupKey::Custom(_)) => Some(key.clone()),
+                _ => None,
+            };
             for leaf in tab.pane.terminals() {
                 let view = leaf.read(cx);
                 let agent = view.agent();
@@ -1851,13 +2036,28 @@ impl NermalApp {
                     agent,
                     status,
                     unread,
+                    category: category.clone(),
                 });
             }
         }
 
+        let row_categories: Vec<Option<crate::core::group_key::GroupKey>> =
+            rows.iter().map(|r| r.category.clone()).collect();
+        let categories = self.render_instance_categories(&row_categories, cx);
+
+        let selected = self.right_panel.instances_category.clone();
+        rows.retain(|r| selected.is_none() || r.category == selected);
+
         if rows.is_empty() {
             return self.panel_scroll(
-                self.panel_empty(t(L10nKey::PanelNoAgents), Some(t(L10nKey::PanelNoAgentsHint)), cx),
+                v_flex()
+                    .child(categories)
+                    .child(self.panel_empty(
+                        t(L10nKey::PanelNoAgents),
+                        Some(t(L10nKey::PanelNoAgentsHint)),
+                        cx,
+                    ))
+                    .into_any_element(),
                 title,
             );
         }
@@ -1917,7 +2117,137 @@ impl NermalApp {
                     })),
             );
         }
-        self.panel_scroll(list.into_any_element(), title)
+        self.panel_scroll(
+            v_flex().child(categories).child(list).into_any_element(),
+            title,
+        )
+    }
+
+    /// The horizontal, scrollable strip of categories above the instance
+    /// list: "All", then every custom group at least one tab actually
+    /// belongs to, then a "+" that names a new one. A category with nothing
+    /// in it has nowhere to persist — naming one and creating its first
+    /// instance are the same click here, rather than a second empty concept
+    /// to track beside the tabs that carry it.
+    fn render_instance_categories(
+        &mut self,
+        row_categories: &[Option<crate::core::group_key::GroupKey>],
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let mut categories: Vec<String> = row_categories
+            .iter()
+            .filter_map(|c| match c {
+                Some(crate::core::group_key::GroupKey::Custom(name)) => Some(name.clone()),
+                _ => None,
+            })
+            .collect();
+        categories.sort();
+        categories.dedup();
+
+        let selected = self.right_panel.instances_category.clone();
+        let sf = cx.global::<crate::ui::presets::Surfaces>().sidebar;
+        let tile = |id: gpui::ElementId, label: String, active: bool, cx: &mut Context<Self>| {
+            div()
+                .id(id)
+                .flex_none()
+                .cursor_pointer()
+                .px(px(10.))
+                .py(px(4.))
+                .rounded(px(6.))
+                .text_size(rems(META))
+                .when(active, |d| {
+                    d.bg(cx.theme().primary).text_color(cx.theme().primary_foreground)
+                })
+                .when(!active, |d| {
+                    d.text_color(cx.theme().muted_foreground)
+                        .hover(|s| s.bg(gpui::rgb(sf.hover)))
+                })
+                .child(label)
+        };
+
+        let mut strip = h_flex()
+            .id("instance-categories")
+            .flex_none()
+            .overflow_x_scroll()
+            .gap(px(4.))
+            .px(px(CONTENT_INSET))
+            .py(px(6.))
+            .child(
+                tile("instance-category-all".into(), t(L10nKey::PanelAllInstances).to_string(), selected.is_none(), cx)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.right_panel.instances_category = None;
+                        cx.notify();
+                    })),
+            );
+        for name in categories {
+            let key = crate::core::group_key::GroupKey::Custom(name.clone());
+            let active = selected.as_ref() == Some(&key);
+            let id = gpui::ElementId::Name(format!("instance-category-{name}").into());
+            strip = strip.child(tile(id, name, active, cx).on_click(cx.listener({
+                let key = key.clone();
+                move |this, _, _, cx| {
+                    this.right_panel.instances_category = Some(key.clone());
+                    cx.notify();
+                }
+            })));
+        }
+
+        if let Some(input) = self.right_panel.instances_new_category.clone() {
+            strip = strip.child(
+                div()
+                    .flex_none()
+                    .w(px(120.))
+                    .px(px(6.))
+                    .child(Input::new(&input).xsmall()),
+            );
+        } else {
+            strip = strip.child(
+                crate::ui::tab_strip::chrome_tile_sized(
+                    Button::new("instance-category-new").icon(Icon::empty().path("icons/plus.svg")),
+                    TILE_SIZE_XS,
+                    TILE_GLYPH_XS,
+                    false,
+                    cx,
+                )
+                .rounded_md()
+                .tooltip(t(L10nKey::PanelNewCategory))
+                .on_click(cx.listener(|this, _, window, cx| this.open_new_instance_category(window, cx))),
+            );
+        }
+        strip
+            .child(div().flex_1())
+            .into_any_element()
+    }
+
+    fn open_new_instance_category(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let input = Self::rename_box(String::new(), window, cx);
+        let sub = cx.subscribe_in(&input, window, |this, _input, ev: &InputEvent, window, cx| {
+            match ev {
+                InputEvent::PressEnter { .. } => this.commit_new_instance_category(window, cx),
+                InputEvent::Blur => this.right_panel.instances_new_category = None,
+                _ => {}
+            }
+            cx.notify();
+        });
+        self.right_panel.instances_new_category = Some(input);
+        self.right_panel.instances_new_category_sub = Some(sub);
+        cx.notify();
+    }
+
+    fn commit_new_instance_category(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(input) = self.right_panel.instances_new_category.take() else {
+            return;
+        };
+        self.right_panel.instances_new_category_sub = None;
+        let name = input.read(cx).value().trim().to_string();
+        let Some(key) = crate::core::group_key::GroupKey::custom(&name) else {
+            cx.notify();
+            return;
+        };
+        self.new_tab(window, cx);
+        self.set_tab_group(self.active, Some(key.clone()), cx);
+        self.right_panel.instances_category = Some(key);
+        cx.notify();
     }
 
     /// The host label for whatever the Files panel is currently showing over

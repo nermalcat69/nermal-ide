@@ -165,6 +165,8 @@ impl CommandKind {
             ShowRightPanel(RightPanelTab::Scm) => "right-panel-changes",
             ShowRightPanel(RightPanelTab::Files) => "right-panel-files",
             ShowRightPanel(RightPanelTab::Agents) => "right-panel-agents",
+            ShowRightPanel(RightPanelTab::Search) => "right-panel-search",
+            ShowRightPanel(RightPanelTab::Usage) => "right-panel-usage",
             ClearTerminal => "clear-scrollback",
             FindInTerminal => "find",
             FindNext => "find-next",
@@ -273,6 +275,8 @@ impl CommandKind {
                 RightPanelTab::Scm => "ShowRightPanelChanges",
                 RightPanelTab::Files => "ShowRightPanelFiles",
                 RightPanelTab::Agents => "ShowRightPanelAgents",
+                RightPanelTab::Search => "ShowRightPanelSearch",
+                RightPanelTab::Usage => "ShowRightPanelUsage",
             },
             ClearTerminal => "ClearScrollback",
             FindInTerminal => "FindInTerminal",
@@ -526,6 +530,14 @@ impl Command {
             Command::localized(
                 L10nKey::CmdRightPanelAgents,
                 ShowRightPanel(RightPanelTab::Agents),
+            ),
+            Command::localized(
+                L10nKey::CmdRightPanelSearch,
+                ShowRightPanel(RightPanelTab::Search),
+            ),
+            Command::localized(
+                L10nKey::CmdRightPanelUsage,
+                ShowRightPanel(RightPanelTab::Usage),
             ),
             Command::localized(L10nKey::CmdChangeTheme, OpenThemePicker),
             Command::localized(L10nKey::CmdResetFontSize, ResetFontSize),

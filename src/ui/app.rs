@@ -451,7 +451,6 @@ pub struct Tab {
     /// while the tab is active: then the zoom lives in `NermalApp::maximized`.
     pub(crate) zoomed: Option<Entity<TerminalView>>,
     pub(crate) diff_overlay: Option<crate::ui::diff_overlay::DiffOverlayState>,
-    pub(crate) code: Option<Box<crate::ui::code_editor::TabCode>>,
     pub(crate) sidebar_group: std::cell::RefCell<Option<crate::core::group_key::GroupKey>>,
     pub(crate) overlay_top: OverlayTop,
     /// Whether this tab's document fills the workspace or docks beside the
@@ -464,14 +463,6 @@ pub struct Tab {
     /// the whole window here and half of it there, and a global switch made
     /// each of those flip the other.
     pub(crate) document_layout: Option<crate::core::config::DocumentLayout>,
-    /// Whether the document dock's default empty state — shown for a tab that
-    /// has never opened a file, so the column is there before anyone knows to
-    /// look for it — has been explicitly turned off. `code.visible` cannot
-    /// carry this on its own: it starts `false` on a `TabCode` created for any
-    /// reason at all (pinning a folder, tracking roots), which would silently
-    /// count as "dismissed" if that were the only signal. Never persisted —
-    /// there is nothing here worth remembering past this run.
-    pub(crate) document_dismissed: bool,
     pub(crate) tree_id: std::cell::Cell<nermal_core::core::machine::TabId>,
     /// Monotonic stamp of when this tab was last activated, used to order the
     /// switcher's tab column most-recently-used first. Zero means never.
@@ -511,10 +502,8 @@ impl Tab {
             last_focused: None,
             zoomed: None,
             diff_overlay: None,
-            code: None,
             overlay_top: OverlayTop::default(),
             document_layout: None,
-            document_dismissed: false,
             sidebar_group: std::cell::RefCell::new(None),
             tree_id: std::cell::Cell::new(nermal_core::core::machine::TabId::new()),
             last_used: std::cell::Cell::new(0),
@@ -529,10 +518,8 @@ impl Tab {
             last_focused: None,
             zoomed: None,
             diff_overlay: None,
-            code: None,
             overlay_top: OverlayTop::default(),
             document_layout: None,
-            document_dismissed: false,
             sidebar_group: std::cell::RefCell::new(
                 tree.sidebar_group
                     .as_deref()
@@ -906,8 +893,23 @@ pub struct NermalApp {
         std::collections::HashSet<(crate::ui::host_ops::HostId, std::path::PathBuf)>,
     pub(crate) file_tree: crate::ui::file_tree::FileTreeState,
     pub(crate) editor: crate::ui::code_editor::EditorPanelState,
+    /// The open-file editor's state, for the whole window rather than for
+    /// whichever tab happens to be active. It used to live on `Tab`, so
+    /// switching between terminal instances swapped it out for whatever that
+    /// other tab's own files were — usually none, which read as the file you
+    /// were looking at getting silently closed. The file tree and the source
+    /// control section beside it are already window-wide, not per-tab; this
+    /// makes the editor agree with both of them.
+    pub(crate) code: Option<Box<crate::ui::code_editor::TabCode>>,
+    pub(crate) search_panel: crate::ui::search_panel::SearchPanelState,
+    /// Whether the document dock's default empty state has been explicitly
+    /// turned off — see `Tab::document_dismissed`'s old doc, now here for the
+    /// same reason `code` is: one editor, not one per tab.
+    pub(crate) document_dismissed: bool,
     pub(crate) sidebar_width: Rc<Cell<f32>>,
     pub(crate) sidebar_dragging: Rc<Cell<bool>>,
+    pub(crate) sidebar_scm_height: Rc<Cell<f32>>,
+    pub(crate) sidebar_scm_dragging: Rc<Cell<bool>>,
     /// Whether the pointer is over the sidebar and over the tab strip. The
     /// chrome tiles in each — new tab, the panel toggles, the app menu — are
     /// drawn only while its own flag is set, so a window nobody is pointing at
@@ -1390,6 +1392,7 @@ impl NermalApp {
             InputState::new(window, cx).placeholder(t(L10nKey::AppPlaceholderDescription))
         });
         let sidebar_width = cx.global::<Config>().sidebar_width;
+        let sidebar_scm_height = cx.global::<Config>().sidebar_scm_height;
         let right_panel_width = cx.global::<Config>().right_panel_width;
         let document_ratio = cx.global::<Config>().document_ratio;
         let right_panel_visible = cx.global::<Config>().right_panel_visible;
@@ -1558,8 +1561,13 @@ impl NermalApp {
             diff_probes_restale: Default::default(),
             file_tree,
             editor,
+            code: None,
+            search_panel: Default::default(),
+            document_dismissed: false,
             sidebar_width: Rc::new(Cell::new(sidebar_width)),
             sidebar_dragging: Rc::new(Cell::new(false)),
+            sidebar_scm_height: Rc::new(Cell::new(sidebar_scm_height)),
+            sidebar_scm_dragging: Rc::new(Cell::new(false)),
             sidebar_chrome_hover: Rc::new(Cell::new(false)),
             strip_chrome_hover: Rc::new(Cell::new(false)),
             settings_row_width: Cell::new(f32::MAX),
@@ -1889,6 +1897,13 @@ impl NermalApp {
         self.tabs = tabs;
         self.active = active;
         self.maximized = None;
+        // The editor is window-wide now, not per-tab — but a *workspace*
+        // switch is a different project, and carrying an open file across
+        // into it would be exactly the cross-instance leak the window-wide
+        // editor was built to avoid, just at the workspace boundary instead
+        // of the tab one.
+        self.code = None;
+        self.document_dismissed = false;
         self.save_session(cx);
         crate::ui::windows::refresh_menu(cx);
         self.focus_active(window, cx);
@@ -1925,10 +1940,8 @@ impl NermalApp {
                 last_focused: None,
                 zoomed: None,
                 diff_overlay: None,
-                code: None,
                 overlay_top: OverlayTop::default(),
                 document_layout: None,
-                document_dismissed: false,
                 sidebar_group: std::cell::RefCell::new(st.sidebar_group),
                 tree_id: std::cell::Cell::new(nermal_core::core::machine::TabId::new()),
                 last_used: std::cell::Cell::new(0),
@@ -4287,9 +4300,6 @@ impl NermalApp {
             return;
         }
         let host = &mut self.tabs[self.active];
-        if host.code.is_none() {
-            host.code = moved.code;
-        }
         if host.diff_overlay.is_none() {
             host.diff_overlay = moved.diff_overlay;
         }
@@ -8521,10 +8531,8 @@ fn tabs_from_session(
             last_focused: None,
             zoomed: None,
             diff_overlay: None,
-            code: None,
             overlay_top: OverlayTop::default(),
             document_layout: None,
-            document_dismissed: false,
             sidebar_group: std::cell::RefCell::new(st.sidebar_group.clone()),
             tree_id: std::cell::Cell::new(
                 st.tree_id

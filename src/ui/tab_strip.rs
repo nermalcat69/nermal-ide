@@ -1183,6 +1183,12 @@ impl NermalApp {
             .and_then(|repo| crate::terminal::git_data::status_of(cx, repo.host, &repo.root))
             .map(|status| status.entries.len())
             .filter(|n| *n > 0);
+        // Scm moved to a fixed section at the bottom of the left sidebar, and
+        // Files is unneeded now that the file explorer lives there too — the
+        // right panel keeps only what has nowhere else to be. `RightPanelTab`
+        // itself still has both variants (`render_right_panel`'s match still
+        // handles them, and `ToggleSftp` still reaches Files directly), just
+        // nothing here offers a tile to click into them.
         [
             (
                 RightPanelTab::Agents,
@@ -1195,14 +1201,14 @@ impl NermalApp {
                 L10nKey::PanelInfoTitle,
             ),
             (
-                RightPanelTab::Scm,
-                Icon::empty().path("icons/git-branch.svg"),
-                L10nKey::PanelChangesTitle,
+                RightPanelTab::Search,
+                Icon::empty().path("icons/search.svg"),
+                L10nKey::PanelSearchTitle,
             ),
             (
-                RightPanelTab::Files,
-                Icon::new(IconName::FolderClosed),
-                L10nKey::PanelFilesTitle,
+                RightPanelTab::Usage,
+                Icon::empty().path("icons/activity.svg"),
+                L10nKey::PanelUsageTitle,
             ),
         ]
         .into_iter()
@@ -2190,8 +2196,12 @@ impl NermalApp {
         // as a glitch beside them. Same bargain macOS struck when it moved
         // these tiles into the panel's title bar: once the panel is open they
         // are part of its chrome, not part of the strip's.
-        let right_chrome = (!panel_open || !cfg!(target_os = "macos"))
-            .then(|| self.window_chrome(strip_chrome_shown || panel_open, window, cx));
+        // Always shown now, not just on hover: the detail-panel toggle is the
+        // only way to open it back up once closed, and hiding it until a
+        // pointer happened to be over the strip hid the one control that
+        // undoes that.
+        let right_chrome =
+            (!panel_open || !cfg!(target_os = "macos")).then(|| self.window_chrome(true, window, cx));
 
         h_flex()
             .id("tab-strip")
