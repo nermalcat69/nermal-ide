@@ -263,9 +263,9 @@ pub(crate) const TILE_GLYPH_LINE: f32 = 16.;
 pub(crate) const TILE_PAD: f32 = (TILE_SIZE - TILE_GLYPH) / 2.;
 pub(crate) const TILE_PAD_SM: f32 = (TILE_SIZE_SM - TILE_GLYPH_SM) / 2.;
 
-const DOCS_URL: &str = "https://github.com/l0ng-ai/nermal#readme";
+const DOCS_URL: &str = "https://github.com/nermalcat69/nermal-ide#readme";
 const DISCORD_URL: &str = "https://discord.gg/s3dethqz2V";
-const ISSUES_URL: &str = "https://github.com/l0ng-ai/nermal/issues/new";
+const ISSUES_URL: &str = "https://github.com/nermalcat69/nermal-ide/issues/new";
 
 pub(crate) const CONTENT_INSET: f32 = 12.;
 
@@ -3518,7 +3518,7 @@ impl NermalApp {
             .get(self.workspace)
             .filter(|w| crate::ui::machine_mirror::pane_count(cx, w).unwrap_or(0) > 0)
             .and_then(|w| crate::ui::machine_mirror::display_name(cx, w))
-            .unwrap_or_else(|| "nermal".to_string());
+            .unwrap_or_else(|| "Nermal".to_string());
         if *self.window_title.borrow() == title {
             return;
         }

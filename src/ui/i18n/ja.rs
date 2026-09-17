@@ -1165,7 +1165,10 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::PanelUsageCpu => "CPU",
         L10nKey::PanelUsageMemory => "メモリ",
         L10nKey::PanelUsageProcesses => "プロセス",
+        L10nKey::PanelUsageByProcess => "プロセス別",
         L10nKey::PanelActivitySubtitle => "アクティビティ",
+        L10nKey::PanelKillProcess => "プロセスを終了",
+        L10nKey::PanelKillProcessConfirm => "プロセス{pid}を終了しますか?保存されていない作業は失われます。",
         L10nKey::PanelNoAgents => "ターミナルインスタンスはまだありません",
         L10nKey::PanelNoAgentsHint => "開くとここに表示されます",
         L10nKey::PanelFilesNowInSidebar => {

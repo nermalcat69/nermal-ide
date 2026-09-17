@@ -570,12 +570,14 @@ mod tests {
                     name: "pwsh".into(),
                     depth: 0,
                     foreground: false,
+                    memory_bytes: 0,
                 },
                 ProcEntry {
                     pid: 200,
                     name: "cargo".into(),
                     depth: 1,
                     foreground: true,
+                    memory_bytes: 0,
                 },
             ],
             ports: vec![PortEntry {
@@ -614,6 +616,7 @@ mod tests {
                 name: "zsh".into(),
                 depth: 0,
                 foreground: true,
+                memory_bytes: 0,
             }],
             ports: Vec::new(),
             probe: PortProbe::Unavailable("lsof: program not found".into()),

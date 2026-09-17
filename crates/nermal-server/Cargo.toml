@@ -3,7 +3,7 @@ name = "nermal-server"
 version.workspace = true
 edition.workspace = true
 description = "nermal's headless session server: the persistent terminal daemon, with no GUI attached"
-repository = "https://github.com/l0ng-ai/nermal"
+repository = "https://github.com/nermalcat69/nermal-ide"
 license = "Apache-2.0"
 publish = false
 

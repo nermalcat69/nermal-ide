@@ -416,17 +416,26 @@ fn enrich_path_from_login_shell() {
     unsafe { std::env::set_var("PATH", merged) };
 }
 
+/// Whether this process is running as a bundled `.app` (which gets its name
+/// and icon from `Info.plist` — `CFBundleName`/`CFBundleIconFile`, see
+/// `bundle-macos.sh`) or as a bare `cargo run`/`cargo build` binary, which has
+/// no such plist and would otherwise show its own executable filename
+/// everywhere AppKit names it — literally `nermal-app`, `main`'s argv0.
+#[cfg(target_os = "macos")]
+fn running_unbundled() -> bool {
+    !std::env::current_exe().is_ok_and(|p| {
+        p.components()
+            .any(|c| c.as_os_str().to_string_lossy().ends_with(".app"))
+    })
+}
+
 #[cfg(target_os = "macos")]
 fn set_dock_icon_for_bare_binary() {
     use objc2::{AnyThread, MainThreadMarker};
     use objc2_app_kit::{NSApplication, NSImage};
     use objc2_foundation::NSData;
 
-    let bundled = std::env::current_exe().is_ok_and(|p| {
-        p.components()
-            .any(|c| c.as_os_str().to_string_lossy().ends_with(".app"))
-    });
-    if bundled {
+    if !running_unbundled() {
         return;
     }
     let Some(mtm) = MainThreadMarker::new() else {

@@ -16,7 +16,7 @@ A background server owns your shells and panes, not the window.
 
 ## Install
 
-Native builds for macOS, Windows, and Linux on [**Releases**](https://github.com/l0ng-ai/nermal/releases):
+Native builds for macOS, Windows, and Linux on [**Releases**](https://github.com/nermalcat69/nermal-ide/releases):
 
 | | | |
 |---|---|---|

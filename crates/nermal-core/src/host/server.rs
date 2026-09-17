@@ -1704,6 +1704,7 @@ mod aggregate_tests {
                     name: "node".into(),
                     depth: 0,
                     foreground: true,
+                    memory_bytes: 0,
                 }],
                 ports: vec![crate::daemon::protocol::PortEntry {
                     port: 3000,

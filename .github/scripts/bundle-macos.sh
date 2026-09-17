@@ -62,8 +62,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleName</key><string>nermal</string>
-    <key>CFBundleDisplayName</key><string>nermal</string>
+    <key>CFBundleName</key><string>Nermal</string>
+    <key>CFBundleDisplayName</key><string>Nermal</string>
     <key>CFBundleIdentifier</key><string>com.github.nermal</string>
     <key>CFBundleVersion</key><string>${VERSION}</string>
     <key>CFBundleShortVersionString</key><string>${VERSION}</string>

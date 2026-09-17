@@ -7,7 +7,7 @@ name = "nermal-cli"
 version.workspace = true
 edition.workspace = true
 description = "nermal's command line: a thin client for the nermal server — workspaces, tabs, panes, agents, no GUI required"
-repository = "https://github.com/l0ng-ai/nermal"
+repository = "https://github.com/nermalcat69/nermal-ide"
 license = "Apache-2.0"
 publish = false
 

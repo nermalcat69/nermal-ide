@@ -5350,7 +5350,7 @@ dependencies = [
 
 [[package]]
 name = "nermal"
-version = "26.9.2"
+version = "0.0.1"
 dependencies = [
  "alacritty_terminal",
  "anyhow",
@@ -5398,7 +5398,7 @@ dependencies = [
 
 [[package]]
 name = "nermal-cli"
-version = "26.9.2"
+version = "0.0.1"
 dependencies = [
  "alacritty_terminal",
  "anyhow",
@@ -5413,7 +5413,7 @@ dependencies = [
 
 [[package]]
 name = "nermal-core"
-version = "26.9.2"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -5447,7 +5447,7 @@ dependencies = [
 
 [[package]]
 name = "nermal-server"
-version = "26.9.2"
+version = "0.0.1"
 dependencies = [
  "libc",
  "nermal-core",

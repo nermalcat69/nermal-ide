@@ -209,6 +209,7 @@ fn walk(table: &HashMap<u32, Row>, shell_pid: u32, fg_pgid: Option<i32>) -> Vec<
             name: row.name.clone(),
             depth,
             foreground: fg_pgid.is_some_and(|g| g as u32 == row.pgid),
+            memory_bytes: proc_memory(pid),
         });
         if depth + 1 > MAX_DEPTH {
             continue;
@@ -274,6 +275,25 @@ fn process_table() -> HashMap<u32, Row> {
         );
     }
     table
+}
+
+/// Resident memory for one pid, in bytes. `walk()`'s tree is bounded by
+/// `MAX_TREE`/`MAX_DEPTH`, so this is one extra syscall per entry actually
+/// shown rather than one per process on the machine.
+#[cfg(target_os = "macos")]
+fn proc_memory(pid: u32) -> u64 {
+    let mut info: libc::proc_taskinfo = unsafe { std::mem::zeroed() };
+    let size = std::mem::size_of::<libc::proc_taskinfo>() as libc::c_int;
+    let ret = unsafe {
+        libc::proc_pidinfo(
+            pid as libc::c_int,
+            libc::PROC_PIDTASKINFO,
+            0,
+            &mut info as *mut _ as *mut libc::c_void,
+            size,
+        )
+    };
+    if ret == size { info.pti_resident_size } else { 0 }
 }
 
 #[cfg(target_os = "macos")]
@@ -343,6 +363,20 @@ fn process_table() -> HashMap<u32, Row> {
     table
 }
 
+/// See the macOS arm above — same bound, same one-syscall-per-shown-entry cost.
+#[cfg(target_os = "linux")]
+fn proc_memory(pid: u32) -> u64 {
+    let Ok(status) = std::fs::read_to_string(format!("/proc/{pid}/status")) else {
+        return 0;
+    };
+    status
+        .lines()
+        .find_map(|line| line.strip_prefix("VmRSS:"))
+        .and_then(|rest| rest.trim().split_whitespace().next())
+        .and_then(|kb| kb.parse::<u64>().ok())
+        .map_or(0, |kb| kb * 1024)
+}
+
 #[cfg(windows)]
 fn process_table() -> HashMap<u32, Row> {
     crate::daemon::winproc::snapshot()
@@ -364,6 +398,43 @@ fn process_table() -> HashMap<u32, Row> {
 #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
 fn process_table() -> HashMap<u32, Row> {
     HashMap::new()
+}
+
+/// See the macOS arm above — same bound, one handle open+close per shown
+/// entry rather than a whole-machine pass.
+#[cfg(windows)]
+fn proc_memory(pid: u32) -> u64 {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::ProcessStatus::{
+        GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS,
+    };
+    use windows_sys::Win32::System::Threading::{
+        OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_VM_READ,
+    };
+    unsafe {
+        let handle = OpenProcess(
+            PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ,
+            0,
+            pid,
+        );
+        if handle.is_null() {
+            return 0;
+        }
+        let mut counters: PROCESS_MEMORY_COUNTERS = std::mem::zeroed();
+        let size = std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
+        let ok = GetProcessMemoryInfo(handle, &mut counters, size);
+        CloseHandle(handle);
+        if ok != 0 {
+            counters.WorkingSetSize as u64
+        } else {
+            0
+        }
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+fn proc_memory(_pid: u32) -> u64 {
+    0
 }
 
 /// The executable name behind a pid.
@@ -1014,18 +1085,21 @@ mod tests {
                 name: "zsh".into(),
                 depth: 0,
                 foreground: false,
+                memory_bytes: 0,
             },
             ProcEntry {
                 pid: 9000,
                 name: "go".into(),
                 depth: 1,
                 foreground: true,
+                memory_bytes: 0,
             },
             ProcEntry {
                 pid: 9001,
                 name: "main".into(),
                 depth: 2,
                 foreground: true,
+                memory_bytes: 0,
             },
         ];
         let report = "p9001\nf3\nn*:8080\nf5\nn[::]:8080\np100\n";

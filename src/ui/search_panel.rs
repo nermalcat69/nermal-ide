@@ -250,7 +250,9 @@ impl NermalApp {
                 })
                 .when(!active, |d| d.text_color(cx.theme().muted_foreground))
                 .child(label)
-                .tooltip(tip)
+                .tooltip(move |window, cx| {
+                    gpui_component::tooltip::Tooltip::new(tip).build(window, cx)
+                })
         };
 
         let query_row = h_flex()

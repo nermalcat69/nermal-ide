@@ -226,6 +226,14 @@ pub(crate) struct RightPanelState {
     /// countdown is what stops a path that never arrives from being compared
     /// against every row forever.
     pub(crate) tree_reveal: Option<(PathBuf, u8)>,
+    /// Resident memory of each local terminal instance's whole process tree
+    /// (shell plus whatever it spawned), keyed by pane id — what the Terminal
+    /// Instances row reads next to its name. Refreshed by its own poll rather
+    /// than piggybacking on `procs_pane`'s single-pane cache, since this panel
+    /// shows every row at once and that cache only ever tracks the one pane
+    /// the Info tab has in front.
+    pub(crate) instance_memory: std::collections::HashMap<u64, u64>,
+    pub(crate) instance_memory_watching: bool,
 }
 
 /// How many renders a reveal waits for its row to show up. Generous: it costs
@@ -249,11 +257,34 @@ const PORT_WATCH_POLL: std::time::Duration = std::time::Duration::from_millis(50
 const USAGE_POLL: std::time::Duration = std::time::Duration::from_millis(2000);
 
 /// One CPU/memory reading for the local daemon and everything under it.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(crate) struct WorkspaceUsage {
     pub(crate) cpu_percent: f32,
     pub(crate) memory_bytes: u64,
     pub(crate) process_count: usize,
+    /// Every process under the daemon, heaviest first — what backs the
+    /// per-process breakdown under the aggregate numbers.
+    pub(crate) processes: Vec<ProcessUsage>,
+}
+
+#[derive(Clone)]
+pub(crate) struct ProcessUsage {
+    pub(crate) pid: u32,
+    pub(crate) name: String,
+    pub(crate) cpu_percent: f32,
+    pub(crate) memory_bytes: u64,
+}
+
+/// "30 MB" under a gigabyte, "0.5 GB" past it — the shape asked for over
+/// a bare megabyte count that keeps climbing into 5-digit reads once a pane
+/// has an agent and its subprocesses running under it.
+fn format_memory(bytes: u64) -> String {
+    let mb = bytes as f64 / (1024. * 1024.);
+    if mb < 1024. {
+        format!("{mb:.0} MB")
+    } else {
+        format!("{:.1} GB", mb / 1024.)
+    }
 }
 
 /// One `System`, kept for the process's whole life rather than rebuilt per
@@ -287,6 +318,7 @@ fn sample_workspace_usage() -> Option<WorkspaceUsage> {
     let mut seen = std::collections::HashSet::new();
     let mut cpu_percent = 0.0;
     let mut memory_bytes = 0u64;
+    let mut processes = Vec::new();
     while let Some(pid) = stack.pop() {
         if !seen.insert(pid) {
             continue;
@@ -294,15 +326,23 @@ fn sample_workspace_usage() -> Option<WorkspaceUsage> {
         if let Some(proc_) = sys.process(pid) {
             cpu_percent += proc_.cpu_usage();
             memory_bytes += proc_.memory();
+            processes.push(ProcessUsage {
+                pid: pid.as_u32(),
+                name: proc_.name().to_string_lossy().into_owned(),
+                cpu_percent: proc_.cpu_usage(),
+                memory_bytes: proc_.memory(),
+            });
         }
         if let Some(children) = by_parent.get(&pid) {
             stack.extend(children.iter().copied());
         }
     }
+    processes.sort_by(|a, b| b.memory_bytes.cmp(&a.memory_bytes));
     Some(WorkspaceUsage {
         cpu_percent,
         memory_bytes,
         process_count: seen.len(),
+        processes,
     })
 }
 
@@ -1190,8 +1230,20 @@ impl NermalApp {
         tooltip: &'static str,
         cx: &mut Context<Self>,
     ) -> Button {
+        self.info_tile_icon(id, Icon::new(icon), tooltip, cx)
+    }
+
+    /// [`Self::info_tile`], for an icon that is one of this app's own SVGs
+    /// rather than a name from the bundled set.
+    fn info_tile_icon(
+        &self,
+        id: impl Into<gpui::ElementId>,
+        icon: Icon,
+        tooltip: &'static str,
+        cx: &mut Context<Self>,
+    ) -> Button {
         crate::ui::tab_strip::chrome_tile_sized(
-            Button::new(id).icon(Icon::new(icon)),
+            Button::new(id).icon(icon),
             TILE_SIZE_XS,
             TILE_GLYPH_XS,
             false,
@@ -1391,6 +1443,24 @@ impl NermalApp {
                     }
                 }),
             );
+            // Local only: killing a PID this machine cannot see is not
+            // something the app can do on its own — that would need a
+            // daemon round trip this action does not make yet.
+            if ctx.host.is_none() {
+                tiles_wide += 1;
+                let pid = p.pid;
+                actions = actions.child(
+                    self.info_tile_icon(
+                        ("panel-port-kill", i),
+                        Icon::empty().path("icons/octagon-x.svg"),
+                        t(L10nKey::PanelKillProcess),
+                        cx,
+                    )
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.kill_local_process(pid, window, cx)
+                    })),
+                );
+            }
             if let Some(f) = forward {
                 tiles_wide += 1;
                 let forward_id = f.id;
@@ -1523,6 +1593,33 @@ impl NermalApp {
     /// The forward is the part the user should not have to think about: they
     /// asked to see :3000, and where :3000 has to be tunnelled to be seen,
     /// that is this function's problem and not theirs.
+    /// Ends the local process serving a port, after asking — a kill is not
+    /// something a misclick should be allowed to do to someone's dev server.
+    /// The list itself catches up on the next `PROCS_POLL`, not immediately:
+    /// forcing one here would mean threading a refresh through a path that
+    /// already runs every two seconds on its own.
+    fn kill_local_process(&mut self, pid: u32, window: &mut Window, cx: &mut Context<Self>) {
+        let answer = window.prompt(
+            gpui::PromptLevel::Warning,
+            &t_fmt(L10nKey::PanelKillProcessConfirm, &[("pid", &pid.to_string())]),
+            None,
+            &crate::ui::confirm_answers(t(L10nKey::PanelKillProcess), t(L10nKey::Cancel)),
+            cx,
+        );
+        cx.spawn_in(window, async move |_, cx| {
+            let Ok(0) = answer.await else { return };
+            cx.background_spawn(async move {
+                let mut sys = sysinfo::System::new_all();
+                sys.refresh_all();
+                if let Some(proc_) = sys.process(sysinfo::Pid::from_u32(pid)) {
+                    proc_.kill();
+                }
+            })
+            .await;
+        })
+        .detach();
+    }
+
     pub(crate) fn open_pane_port(
         &mut self,
         port: u16,
@@ -1925,25 +2022,62 @@ impl NermalApp {
             })
             .detach();
         }
-        let body = match self.right_panel.usage {
+        let body = match &self.right_panel.usage {
             None => self.panel_empty(t(L10nKey::PanelUsageLoading), None, cx),
             Some(usage) => {
-                let mb = usage.memory_bytes as f64 / (1024. * 1024.);
-                v_flex()
+                let mut col = v_flex()
                     .px(px(CONTENT_INSET - ROW_INSET))
                     .py(px(4.))
                     .gap(px(10.))
                     .child(self.usage_stat(t(L10nKey::PanelUsageCpu), format!("{:.1}%", usage.cpu_percent), cx))
-                    .child(self.usage_stat(t(L10nKey::PanelUsageMemory), format!("{mb:.0} MB"), cx))
+                    .child(self.usage_stat(t(L10nKey::PanelUsageMemory), format_memory(usage.memory_bytes), cx))
                     .child(self.usage_stat(
                         t(L10nKey::PanelUsageProcesses),
                         usage.process_count.to_string(),
                         cx,
-                    ))
-                    .into_any_element()
+                    ));
+                if !usage.processes.is_empty() {
+                    col = col.child(
+                        div()
+                            .pt(px(6.))
+                            .text_size(rems(META))
+                            .text_color(cx.theme().muted_foreground)
+                            .child(t(L10nKey::PanelUsageByProcess)),
+                    );
+                    for proc_ in usage.processes.iter().take(20) {
+                        col = col.child(self.usage_process_row(proc_, cx));
+                    }
+                }
+                col.into_any_element()
             }
         };
         self.panel_scroll(body, title)
+    }
+
+    fn usage_process_row(&self, proc_: &ProcessUsage, cx: &mut Context<Self>) -> AnyElement {
+        h_flex()
+            .items_baseline()
+            .justify_between()
+            .gap(px(8.))
+            .px(px(ROW_INSET))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .text_size(rems(TEXT))
+                    .text_color(cx.theme().foreground)
+                    .child(format!("{} ({})", proc_.name, proc_.pid)),
+            )
+            .child(
+                div()
+                    .flex_none()
+                    .text_size(rems(TEXT))
+                    .font_family(cx.theme().mono_font_family.clone())
+                    .text_color(cx.theme().muted_foreground)
+                    .child(format!("{:.1}%  {}", proc_.cpu_percent, format_memory(proc_.memory_bytes))),
+            )
+            .into_any_element()
     }
 
     fn usage_stat(&self, label: &str, value: String, cx: &mut Context<Self>) -> AnyElement {
@@ -1976,7 +2110,67 @@ impl NermalApp {
     /// that used to answer "what's running" moved out of the left sidebar
     /// entirely: the sidebar is search-and-files now, and this panel is
     /// where every terminal instance lives, agent or plain shell alike.
+    /// Keeps `right_panel.instance_memory` fresh while the Terminal Instances
+    /// tab is on screen — local panes only, the same restriction every other
+    /// `sysinfo`-backed reading in this file carries, since a remote pane's
+    /// pid means nothing to a process table read on this machine.
+    fn watch_instance_memory(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.right_panel.instance_memory_watching {
+            return;
+        }
+        self.right_panel.instance_memory_watching = true;
+        cx.spawn_in(window, async move |this, cx| {
+            loop {
+                let local_panes: Vec<u64> = this
+                    .update(cx, |this, cx| {
+                        this.tabs
+                            .iter()
+                            .flat_map(|tab| tab.pane.terminals())
+                            .map(|leaf| leaf.read(cx))
+                            .filter(|view| view.host_id().is_local())
+                            .map(|view| view.pane_id)
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let readings: Vec<(u64, u64)> = cx
+                    .background_spawn(async move {
+                        local_panes
+                            .into_iter()
+                            .map(|pane_id| {
+                                let total: u64 = crate::terminal::RemoteTerminal::query_procs(pane_id)
+                                    .procs
+                                    .iter()
+                                    .map(|p| p.memory_bytes)
+                                    .sum();
+                                (pane_id, total)
+                            })
+                            .collect()
+                    })
+                    .await;
+                let alive = this
+                    .update(cx, |this, cx| {
+                        let stop = !(this.right_panel_visible
+                            && this.right_panel_tab == RightPanelTab::Agents);
+                        if stop {
+                            this.right_panel.instance_memory_watching = false;
+                            return false;
+                        }
+                        this.right_panel.instance_memory = readings.into_iter().collect();
+                        cx.notify();
+                        true
+                    })
+                    .unwrap_or(false);
+                if !alive {
+                    return;
+                }
+                cx.background_executor().timer(USAGE_POLL).await;
+            }
+        })
+        .detach();
+    }
+
     fn render_panel_agents(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        self.watch_instance_memory(window, cx);
         let new_instance = crate::ui::tab_strip::chrome_tile_sized(
             Button::new("agent-new-instance").icon(Icon::empty().path("icons/plus.svg")),
             TILE_SIZE_SM,
@@ -2009,6 +2203,7 @@ impl NermalApp {
             status: Option<crate::core::cli_agent::AgentStatus>,
             unread: bool,
             category: Option<crate::core::group_key::GroupKey>,
+            pane_id: u64,
         }
         let mut rows = Vec::new();
         for (tab_index, tab) in self.tabs.iter().enumerate() {
@@ -2037,6 +2232,7 @@ impl NermalApp {
                     status,
                     unread,
                     category: category.clone(),
+                    pane_id: view.pane_id,
                 });
             }
         }
@@ -2047,6 +2243,20 @@ impl NermalApp {
 
         let selected = self.right_panel.instances_category.clone();
         rows.retain(|r| selected.is_none() || r.category == selected);
+
+        // Two instances reading "Claude Code" (or any other name derived
+        // rather than typed) is not two mislabelled rows, it is the same
+        // label twice — the number is what tells them apart without anyone
+        // having to rename either. Counted in list order, so a rename that
+        // frees up the bare name hands it back to whichever row is first.
+        let mut seen: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+        for row in &mut rows {
+            let count = seen.entry(row.name.clone()).or_insert(0);
+            *count += 1;
+            if *count > 1 {
+                row.name = format!("{} {}", row.name, count);
+            }
+        }
 
         if rows.is_empty() {
             return self.panel_scroll(
@@ -2079,9 +2289,63 @@ impl NermalApp {
                 .unwrap_or_default();
             let tab_index = row.tab_index;
             let leaf = row.leaf.clone();
+            let renaming_input = self
+                .renaming
+                .as_ref()
+                .filter(|r| self.tabs.get(tab_index).is_some_and(|t| t.tree_id.get() == r.tab))
+                .map(|r| r.input.clone());
+            let row_id = gpui::SharedString::from(format!("panel-agent-row-{i}"));
+            let name_area = match renaming_input {
+                Some(input) => div()
+                    .flex_1()
+                    .min_w_0()
+                    .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .child(Input::new(&input).small())
+                    .into_any_element(),
+                None => v_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .child(
+                        div()
+                            .truncate()
+                            .text_size(rems(TEXT))
+                            .text_color(cx.theme().foreground)
+                            .child(row.name),
+                    )
+                    .when(!state.is_empty(), |col| {
+                        col.child(
+                            div()
+                                .truncate()
+                                .text_size(rems(META))
+                                .text_color(cx.theme().muted_foreground)
+                                .child(state),
+                        )
+                    })
+                    .into_any_element(),
+            };
+            let memory_label = self
+                .right_panel
+                .instance_memory
+                .get(&row.pane_id)
+                .filter(|&&bytes| bytes > 0)
+                .map(|&bytes| format_memory(bytes));
+            let rename_tile = action_strip(&row_id, sf.hover).child(
+                self.info_tile_icon(
+                    ("panel-agent-rename", i),
+                    Icon::empty().path("icons/pencil.svg"),
+                    t(L10nKey::CmdRenameTab),
+                    cx,
+                )
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    cx.stop_propagation();
+                    this.start_rename(tab_index, window, cx);
+                })),
+            );
             list = list.child(
                 h_flex()
-                    .id(("panel-agent-row", i))
+                    .id(row_id.clone())
+                    .group(row_id)
+                    .relative()
                     .cursor_pointer()
                     .items_center()
                     .gap(px(8.))
@@ -2090,27 +2354,16 @@ impl NermalApp {
                     .rounded(px(5.))
                     .hover(|s| s.bg(gpui::rgb(sf.hover)))
                     .child(avatar)
-                    .child(
-                        v_flex()
-                            .flex_1()
-                            .min_w_0()
-                            .child(
-                                div()
-                                    .truncate()
-                                    .text_size(rems(TEXT))
-                                    .text_color(cx.theme().foreground)
-                                    .child(row.name),
-                            )
-                            .when(!state.is_empty(), |col| {
-                                col.child(
-                                    div()
-                                        .truncate()
-                                        .text_size(rems(META))
-                                        .text_color(cx.theme().muted_foreground)
-                                        .child(state),
-                                )
-                            }),
-                    )
+                    .child(name_area)
+                    .children(memory_label.map(|label| {
+                        div()
+                            .flex_none()
+                            .text_size(rems(META))
+                            .font_family(cx.theme().mono_font_family.clone())
+                            .text_color(cx.theme().muted_foreground)
+                            .child(label)
+                    }))
+                    .child(rename_tile)
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.activate(tab_index, window, cx);
                         window.focus(&leaf.read(cx).focus_handle(cx), cx);

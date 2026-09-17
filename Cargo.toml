@@ -3,7 +3,7 @@ name = "nermal"
 version.workspace = true
 edition = "2024"
 description = "A terminal workbench: shells, persistent sessions, SSH, coding agents — GPU-rendered on Zed's gpui, pure Rust"
-repository = "https://github.com/l0ng-ai/nermal"
+repository = "https://github.com/nermalcat69/nermal-ide"
 license = "Apache-2.0"
 readme = "README.md"
 publish = false
@@ -283,7 +283,7 @@ edition = "2024"
 # they must never drift apart. This is the line a release bump edits (and the
 # one nightly's `awk '/^version = /'` stamps: it is the first such line in the
 # file, since the package entries above are all `version.workspace = true`).
-version = "26.9.2"
+version = "0.0.1"
 
 [workspace.dependencies]
 # Our fork's `nermal` branch carries the local customizations nermal relies on:

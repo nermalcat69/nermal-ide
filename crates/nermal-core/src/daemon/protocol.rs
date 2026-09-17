@@ -422,6 +422,12 @@ pub struct ProcEntry {
     pub depth: u8,
     #[serde(default)]
     pub foreground: bool,
+    /// Resident memory, in bytes. `serde(default)` because a daemon from
+    /// before this field existed answers `QueryProcs` without it, and 0 reads
+    /// the same way every other "this daemon cannot say" default does here:
+    /// as absence, not as an actual zero-byte process.
+    #[serde(default)]
+    pub memory_bytes: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -1035,11 +1035,11 @@ mod tests {
     #[test]
     fn git_config_keeps_multiword_and_empty_values() {
         let stdout =
-            "user.name l0ng-ai\ncore.autocrlf input\ncredential.helper \nalias.lg log --graph\n";
+            "user.name nermal\ncore.autocrlf input\ncredential.helper \nalias.lg log --graph\n";
         assert_eq!(
             pairs(&parse_git_config(stdout)),
             vec![
-                ("user.name", Some("l0ng-ai")),
+                ("user.name", Some("nermal")),
                 ("core.autocrlf", Some("input")),
                 ("credential.helper", None),
                 ("alias.lg", Some("log --graph")),

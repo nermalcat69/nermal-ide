@@ -12,7 +12,7 @@
   "logo": {
     "light": "/logo/logo.svg",
     "dark": "/logo/logo.svg",
-    "href": "https://github.com/l0ng-ai/nermal"
+    "href": "https://github.com/nermalcat69/nermal-ide"
   },
   "navigation": {
     "tabs": [
@@ -120,7 +120,7 @@
     "links": [
       {
         "label": "GitHub",
-        "href": "https://github.com/l0ng-ai/nermal"
+        "href": "https://github.com/nermalcat69/nermal-ide"
       },
       {
         "label": "Discord",
@@ -130,12 +130,12 @@
     "primary": {
       "type": "button",
       "label": "Download",
-      "href": "https://github.com/l0ng-ai/nermal/releases"
+      "href": "https://github.com/nermalcat69/nermal-ide/releases"
     }
   },
   "footer": {
     "socials": {
-      "github": "https://github.com/l0ng-ai/nermal",
+      "github": "https://github.com/nermalcat69/nermal-ide",
       "discord": "https://discord.gg/s3dethqz2V"
     }
   }

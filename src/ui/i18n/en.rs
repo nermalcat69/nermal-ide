@@ -1101,7 +1101,10 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::PanelUsageCpu => "CPU",
         L10nKey::PanelUsageMemory => "Memory",
         L10nKey::PanelUsageProcesses => "Processes",
+        L10nKey::PanelUsageByProcess => "By process",
         L10nKey::PanelActivitySubtitle => "Activity",
+        L10nKey::PanelKillProcess => "Kill Process",
+        L10nKey::PanelKillProcessConfirm => "End process {pid}? Any unsaved work in it will be lost.",
         L10nKey::PanelNoAgents => "No terminal instances yet.",
         L10nKey::PanelNoAgentsHint => "Open one to see it here.",
         L10nKey::PanelFilesNowInSidebar => {

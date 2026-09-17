@@ -3,7 +3,7 @@ name = "nermal-core"
 version.workspace = true
 edition.workspace = true
 description = "nermal's framework-free core: wire protocol, session daemon, PTY, SSH engine, and the domain model both the GUI and the headless server build on"
-repository = "https://github.com/l0ng-ai/nermal"
+repository = "https://github.com/nermalcat69/nermal-ide"
 license = "Apache-2.0"
 publish = false
 
@@ -171,6 +171,7 @@ windows-sys = { version = "0.59", features = [
     "Win32_Security",
     "Win32_System_Console",
     "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_ProcessStatus",
     "Win32_System_Registry",
     "Win32_System_Threading",
     "Win32_UI_WindowsAndMessaging",

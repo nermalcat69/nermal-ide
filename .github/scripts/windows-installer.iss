@@ -24,13 +24,13 @@
 ; Never change AppId: it is how Windows ties upgrades + the uninstall entry
 ; to previous installs of nermal.
 AppId={{9A3F6C1E-4B7D-4E2A-8C5F-D01B92E64A37}
-AppName=nermal
+AppName=Nermal
 AppVersion={#AppVersion}
 VersionInfoVersion={#VersionInfoVersion}
-AppPublisher=nermal contributors
-AppPublisherURL=https://github.com/l0ng-ai/nermal
-AppSupportURL=https://github.com/l0ng-ai/nermal/issues
-AppUpdatesURL=https://github.com/l0ng-ai/nermal/releases
+AppPublisher=Nermal contributors
+AppPublisherURL=https://github.com/nermalcat69/nermal-ide
+AppSupportURL=https://github.com/nermalcat69/nermal-ide/issues
+AppUpdatesURL=https://github.com/nermalcat69/nermal-ide/releases
 DefaultDirName={autopf}\nermal
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
@@ -117,8 +117,8 @@ Source: "{#StageDir}\server\*"; DestDir: "{app}\server"; Flags: ignoreversion re
 ; per-user twin would both duplicate the Start Menu entry and outlive this
 ; uninstaller — so an elevated install depends on the stamp right here.
 [Icons]
-Name: "{autoprograms}\nermal"; Filename: "{app}\nermal-app.exe"; AppUserModelID: "com.github.nermal"
-Name: "{autodesktop}\nermal"; Filename: "{app}\nermal-app.exe"; Tasks: desktopicon; AppUserModelID: "com.github.nermal"
+Name: "{autoprograms}\Nermal"; Filename: "{app}\nermal-app.exe"; AppUserModelID: "com.github.nermal"
+Name: "{autodesktop}\Nermal"; Filename: "{app}\nermal-app.exe"; Tasks: desktopicon; AppUserModelID: "com.github.nermal"
 
 [Run]
 ; The registry shape lives in core::explorer_context_menu, not here: the app
@@ -131,7 +131,7 @@ Name: "{autodesktop}\nermal"; Filename: "{app}\nermal-app.exe"; Tasks: desktopic
 ; Skipping loses nothing: an upgrade keeps the install path, so the HKCU keys
 ; a ticked first install wrote still point at the right executable.
 Filename: "{app}\nermal-app.exe"; Parameters: "--register-explorer-menu"; Tasks: explorermenu; Flags: runhidden waituntilterminated skipifsilent
-Filename: "{app}\nermal-app.exe"; Description: "{cm:LaunchProgram,nermal}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\nermal-app.exe"; Description: "{cm:LaunchProgram,Nermal}"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
 ; Stop the daemon before the uninstaller deletes nermal-app.exe — the running daemon

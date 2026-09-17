@@ -73,7 +73,7 @@ chmod +x "$APPDIR/usr/bin/nermal-updater"
 cat > "$TOOLS/nermal.desktop" <<'DESKTOP'
 [Desktop Entry]
 Type=Application
-Name=nermal
+Name=Nermal
 Comment=A fast, native terminal
 Exec=nermal-app
 Icon=nermal

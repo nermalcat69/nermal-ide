@@ -3508,6 +3508,7 @@ mod tests {
             name: name.into(),
             depth,
             foreground,
+            memory_bytes: 0,
         }
     }
 
