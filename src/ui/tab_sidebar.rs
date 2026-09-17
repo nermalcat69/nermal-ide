@@ -1483,7 +1483,11 @@ impl NermalApp {
                 div()
                     .flex_1()
                     .min_w_0()
-                    .child(Input::new(&self.sidebar_search).appearance(false).pl_0()),
+                    // Filters the file explorer now, not the tab list: the
+                    // list that box used to search moved to the right
+                    // panel's Instances tab, and this is the sidebar's only
+                    // search box left.
+                    .child(Input::new(&self.file_search).appearance(false).pl_0()),
             );
 
         let container: Rc<Cell<Option<Bounds<Pixels>>>> = Rc::new(Cell::new(None));
@@ -1603,11 +1607,17 @@ impl NermalApp {
                     ))
                     .child(workspace_head)
                     .child(top_bar)
-                    .child(crate::ui::scrollbar::with_vertical_scrollbar(
-                        "tab-sidebar-scrollbar",
-                        list,
-                        &self.sidebar_scroll,
-                    ))
+                    // The tab list itself (`list`, built above) no longer
+                    // renders here — every terminal instance lives in the
+                    // right panel's Instances tab now, and this sidebar is
+                    // search-and-files. Its construction stays upstream
+                    // rather than being torn out of a function this size on
+                    // top of everything else this change already touches;
+                    // dropping the child here is what actually takes it off
+                    // screen.
+                    // ponytail: the ~1200 lines above that build `list`
+                    // (grouping, drag-drop, rename) now run for a value
+                    // nothing renders — worth trimming once this settles.
                     .child(self.render_sidebar_file_tree(window, cx)),
             )
             .child(handle)
@@ -1630,12 +1640,14 @@ impl NermalApp {
         if self.tabs.get(self.active).is_none() {
             return div().into_any_element();
         }
+        // No search box of its own: the top bar's search input now filters
+        // this tree directly (see `top_bar` above), so a second one here
+        // would just be the same query asked twice.
         v_flex()
             .flex_1()
             .min_h_0()
             .border_t_1()
             .border_color(cx.theme().sidebar_border)
-            .child(self.panel_search(&self.file_search.clone(), cx))
             .child(self.render_file_tree_rows(window, cx))
             .into_any_element()
     }
@@ -2538,6 +2550,9 @@ mod fold_tests {
     }
 
     #[gpui::test]
+    #[ignore = "the tab list no longer renders in the sidebar (moved to the \
+                right panel's Instances tab), so `drawn` never finds a row \
+                to check; the grouping/fold logic itself is untouched"]
     fn folding_a_group_takes_its_rows_off_the_sidebar(cx: &mut TestAppContext) {
         let (app, mut vcx, _streams) = harness_with_tabs(cx, 3);
         let alpha = GroupKey::Repo(PathBuf::from("/w/alpha"));
@@ -2592,6 +2607,9 @@ mod fold_tests {
     }
 
     #[gpui::test]
+    #[ignore = "the tab list no longer renders in the sidebar (moved to the \
+                right panel's Instances tab), so `drawn` never finds a row \
+                to check; the grouping/fold logic itself is untouched"]
     fn a_search_outranks_a_fold(cx: &mut TestAppContext) {
         let (app, mut vcx, _streams) = harness_with_tabs(cx, 2);
         let alpha = GroupKey::Repo(PathBuf::from("/w/alpha"));
@@ -2631,6 +2649,9 @@ mod fold_tests {
     /// that failed to load, which is what folding a group you are working in
     /// used to produce.
     #[gpui::test]
+    #[ignore = "the tab list no longer renders in the sidebar (moved to the \
+                right panel's Instances tab), so `drawn` never finds a row \
+                to check; the grouping/fold logic itself is untouched"]
     fn a_fold_hides_the_active_row_too(cx: &mut TestAppContext) {
         let (app, mut vcx, _streams) = harness_with_tabs(cx, 2);
         let alpha = GroupKey::Repo(PathBuf::from("/w/alpha"));
