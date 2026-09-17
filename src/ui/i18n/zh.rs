@@ -1731,6 +1731,7 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::TabMenuLocalShells => "本地",
         L10nKey::TabMenuAddHost => "添加 SSH 主机…",
         L10nKey::TabMenuAllHosts => "所有 SSH 主机…",
+        L10nKey::TabMenuOpenFolder => "打开文件夹…",
         L10nKey::TabMenuSplitHint => "按住 {key} 可分屏打开",
         L10nKey::TabUnnamedShell => "终端 {n}",
         L10nKey::ShellDefault => "默认",

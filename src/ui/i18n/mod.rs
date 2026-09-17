@@ -1034,6 +1034,7 @@ l10n_keys! {
     TabMenuLocalShells,
     TabMenuAddHost,
     TabMenuAllHosts,
+    TabMenuOpenFolder,
     TabMenuSplitHint,
     TabUnnamedShell,
     ShellDefault,

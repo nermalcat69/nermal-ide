@@ -781,12 +781,51 @@ impl NermalApp {
         let Some(code) = self.tab_code_mut_or_init() else {
             return;
         };
+        for pinned in &code.pinned_roots {
+            if !roots.contains(pinned) {
+                roots.push(pinned.clone());
+            }
+        }
         if roots != code.roots {
             code.roots = roots;
             self.file_tree.invalidate_all();
             cx.notify();
         }
         self.file_tree_sync_watch(host, cx);
+    }
+
+    /// Add a folder to the file tree from the local filesystem picker,
+    /// independent of whatever cwd the active pane happens to be sitting in.
+    pub(crate) fn open_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let rx = cx.prompt_for_paths(gpui::PathPromptOptions {
+            files: false,
+            directories: true,
+            multiple: false,
+            prompt: None,
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            let Ok(Ok(Some(mut paths))) = rx.await else {
+                return;
+            };
+            let Some(path) = paths.pop() else {
+                return;
+            };
+            let _ = this.update_in(cx, |this, window, cx| {
+                let Some(code) = this.tab_code_mut_or_init() else {
+                    return;
+                };
+                if !code.pinned_roots.contains(&path) {
+                    code.pinned_roots.push(path);
+                }
+                code.visible = true;
+                this.file_tree_refresh_roots(window, cx);
+                if !this.file_tree_on_screen(cx) {
+                    this.set_right_panel_tab(crate::core::config::RightPanelTab::Files, cx);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     fn file_tree_sync_watch(&mut self, host: SharedHost, cx: &mut Context<Self>) {

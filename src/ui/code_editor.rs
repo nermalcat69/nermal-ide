@@ -71,6 +71,12 @@ pub(crate) struct TabCode {
     pub(crate) files: Vec<OpenFile>,
     pub(crate) active: usize,
     pub(crate) roots: Vec<PathBuf>,
+    /// Folders added by hand via "Open Folder…", kept apart from `roots`
+    /// because [`crate::ui::app::NermalApp::file_tree_refresh_roots`]
+    /// recomputes `roots` from scratch off the active pane's cwd every time a
+    /// pane changes — a folder only living in `roots` would vanish the next
+    /// time that ran. These are folded back in on every refresh instead.
+    pub(crate) pinned_roots: Vec<PathBuf>,
     pub(crate) expanded: std::collections::HashSet<PathBuf>,
     pub(crate) selected: Option<PathBuf>,
 }
@@ -82,6 +88,7 @@ impl TabCode {
             files: Vec::new(),
             active: 0,
             roots: Vec::new(),
+            pinned_roots: Vec::new(),
             expanded: std::collections::HashSet::new(),
             selected: None,
         }

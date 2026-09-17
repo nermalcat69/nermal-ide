@@ -820,6 +820,19 @@ impl NewTabMenu {
             }
         }));
 
+        let app = self.app.clone();
+        menu = menu
+            .item(PopupMenuItem::separator())
+            .item(
+                PopupMenuItem::new(t(L10nKey::TabMenuOpenFolder)).on_click(
+                    move |_, window, cx| {
+                        if let Some(app) = app.upgrade() {
+                            app.update(cx, |this, cx| this.open_folder(window, cx));
+                        }
+                    },
+                ),
+            );
+
         // The one place ⌥ is spelled out. Nothing else in the app teaches it,
         // and a modifier nobody is told about is a feature nobody has. No rule
         // above it: a separator divides two lists of things to pick, and this
