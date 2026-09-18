@@ -137,6 +137,7 @@ fn apply_reloaded_config(
     // drag has no business touching the registry.
     let language_changed = cx.global::<Config>().gui_language != config.gui_language;
     crate::ui::i18n::set_locale(&config.gui_language);
+    crate::ui::pane::sync_full_resize(&config);
     cx.set_global(config);
     reload_themes(cx);
     crate::ui::theme::apply_cursor_hide_mode(cx);
@@ -681,6 +682,7 @@ fn main() {
         #[cfg(target_os = "macos")]
         set_dock_icon_for_bare_binary();
         crate::ui::i18n::set_locale(&gui_language);
+        crate::ui::pane::sync_full_resize(&config);
         // The load above is reused rather than re-read: reading the same
         // file twice at launch would report the same failure twice.
         cx.set_global(config);

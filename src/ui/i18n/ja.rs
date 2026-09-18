@@ -174,6 +174,10 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsDimInactivePanesDesc => {
             "分割内のフォーカスされていないペインを暗くし、アクティブなペインを目立たせる"
         }
+        L10nKey::SettingsPaneFullResize => "ペインを端までドラッグ",
+        L10nKey::SettingsPaneFullResizeDesc => {
+            "分割の境界線を端近くまでドラッグできるようにし、隣接するペインをごく小さくする"
+        }
         L10nKey::SettingsOpenThemesFolder => "テーマフォルダを開く",
         L10nKey::SettingsChangeThemeImage => "変更…",
         L10nKey::SettingsChooseThemeImage => "選択…",

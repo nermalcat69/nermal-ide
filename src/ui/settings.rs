@@ -2715,6 +2715,7 @@ impl NermalApp {
         let config = cx.global::<Config>();
         let overridden = window_overrides_active(config, cfg!(target_os = "windows"));
         let dim_inactive_panes = config.dim_inactive_panes;
+        let pane_full_resize = config.pane_full_resize;
         let opacity = NermalApp::effective_window_opacity(cx);
 
         let opacity_control = h_flex()
@@ -2802,6 +2803,10 @@ impl NermalApp {
             .checked(dim_inactive_panes)
             .on_click(cx.listener(|this, on: &bool, _w, cx| this.set_dim_inactive_panes(*on, cx)))
             .into_any_element();
+        let pane_full_resize_switch = crate::ui::theme::switch("pane-full-resize", cx)
+            .checked(pane_full_resize)
+            .on_click(cx.listener(|this, on: &bool, _w, cx| this.set_pane_full_resize(*on, cx)))
+            .into_any_element();
 
         v_flex()
             .child(self.section_header(t(L10nKey::SettingsTransparency), cx))
@@ -2842,6 +2847,12 @@ impl NermalApp {
                 t(L10nKey::SettingsDimInactivePanes),
                 t(L10nKey::SettingsDimInactivePanesDesc),
                 dim_switch,
+                cx,
+            ))
+            .child(self.settings_row(
+                t(L10nKey::SettingsPaneFullResize),
+                t(L10nKey::SettingsPaneFullResizeDesc),
+                pane_full_resize_switch,
                 cx,
             ))
             .into_any_element()

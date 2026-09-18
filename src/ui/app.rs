@@ -3332,6 +3332,11 @@ impl NermalApp {
         self.update_config(cx, |cfg| cfg.dim_inactive_panes = on);
     }
 
+    pub(crate) fn set_pane_full_resize(&mut self, on: bool, cx: &mut Context<Self>) {
+        self.update_config(cx, |cfg| cfg.pane_full_resize = on);
+        crate::ui::pane::sync_full_resize(cx.global::<Config>());
+    }
+
     pub(crate) fn set_cursor_blink(&mut self, on: bool, cx: &mut Context<Self>) {
         self.update_config(cx, |cfg| cfg.cursor_blink = on);
         if !on {

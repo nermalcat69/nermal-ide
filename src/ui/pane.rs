@@ -10,7 +10,30 @@ use crate::ui::pending_pane::PendingPane;
 
 const MIN_RATIO: f32 = 0.1;
 const MAX_RATIO: f32 = 0.9;
+/// Bounds a divider drag uses once `Config::pane_full_resize` is on: enough
+/// room to still grab the sliver back, unlike `MIN_RATIO`/`MAX_RATIO`.
+const MIN_RATIO_FULL: f32 = 0.02;
+const MAX_RATIO_FULL: f32 = 0.98;
 const DIVIDER_THICKNESS: f32 = 5.;
+
+/// Set from `Config::pane_full_resize` wherever the config is (re)loaded.
+/// A global rather than a threaded parameter: the ratio clamp is called from
+/// deep, cx-less recursion (`collect_rects`, `run_shares`, ...) alongside
+/// mouse-drag closures that do have a `cx`, and duplicating every one of
+/// those signatures just to carry one bool would dwarf the setting itself.
+static PANE_FULL_RESIZE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn sync_full_resize(cfg: &crate::core::config::Config) {
+    PANE_FULL_RESIZE.store(cfg.pane_full_resize, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn ratio_bounds() -> (f32, f32) {
+    if PANE_FULL_RESIZE.load(std::sync::atomic::Ordering::Relaxed) {
+        (MIN_RATIO_FULL, MAX_RATIO_FULL)
+    } else {
+        (MIN_RATIO, MAX_RATIO)
+    }
+}
 
 /// How opaque a dragged (lifted) pane's terminal paints, blended toward the
 /// window background. The terminal reads it through `TerminalView::dim`; kept
@@ -175,11 +198,12 @@ impl<L: Clone> Pane<L> {
     }
 
     pub fn split_node(axis: Axis, ratio: f32, a: Pane<L>, b: Pane<L>) -> Self {
+        let (min_r, max_r) = ratio_bounds();
         Pane::Split {
             axis,
             a: Box::new(a),
             b: Box::new(b),
-            ratio: Rc::new(Cell::new(ratio.clamp(MIN_RATIO, MAX_RATIO))),
+            ratio: Rc::new(Cell::new(ratio.clamp(min_r, max_r))),
             dragging: Rc::new(Cell::new(false)),
         }
     }
@@ -436,7 +460,8 @@ impl<L: Clone> Pane<L> {
                 b,
                 ..
             } if *split == axis => {
-                let r = ratio.get().clamp(MIN_RATIO, MAX_RATIO);
+                let (min_r, max_r) = ratio_bounds();
+                let r = ratio.get().clamp(min_r, max_r);
                 a.run_shares(axis, of * r, out);
                 b.run_shares(axis, of * (1. - r), out);
             }
@@ -459,7 +484,8 @@ impl<L: Clone> Pane<L> {
                 let right = b.set_run_shares(axis, shares);
                 let total = left + right;
                 if total > 0. {
-                    ratio.set((left / total).clamp(MIN_RATIO, MAX_RATIO));
+                    let (min_r, max_r) = ratio_bounds();
+                    ratio.set((left / total).clamp(min_r, max_r));
                 }
                 total
             }
@@ -784,7 +810,8 @@ impl<L: Clone> Pane<L> {
             Pane::Split {
                 axis, a, b, ratio, ..
             } => {
-                let r = ratio.get().clamp(MIN_RATIO, MAX_RATIO);
+                let (min_r, max_r) = ratio_bounds();
+                let r = ratio.get().clamp(min_r, max_r);
                 match axis {
                     Axis::Horizontal => {
                         let aw = area.w * r;
@@ -900,7 +927,8 @@ impl<L: Clone> Pane<L> {
             if let Pane::Split { axis, ratio, .. } = node {
                 if *axis == target_axis {
                     let delta = if *went_a == dir.grows() { step } else { -step };
-                    let r = (ratio.get() + delta).clamp(MIN_RATIO, MAX_RATIO);
+                    let (min_r, max_r) = ratio_bounds();
+                    let r = (ratio.get() + delta).clamp(min_r, max_r);
                     ratio.set(r);
                     return true;
                 }
@@ -1078,7 +1106,8 @@ impl Pane<PaneSlot> {
                 dragging,
             } => {
                 let row = *axis == Axis::Horizontal;
-                let r = ratio.get().clamp(MIN_RATIO, MAX_RATIO);
+                let (min_r, max_r) = ratio_bounds();
+                let r = ratio.get().clamp(min_r, max_r);
 
                 let idle = cx.theme().border;
                 let active = cx.theme().drag_border;
@@ -1116,7 +1145,8 @@ impl Pane<PaneSlot> {
                                         ev.position.y - b.origin.y
                                     };
                                     let new_ratio = offset / span;
-                                    ratio.set(new_ratio.clamp(MIN_RATIO, MAX_RATIO));
+                                    let (min_r, max_r) = ratio_bounds();
+                                    ratio.set(new_ratio.clamp(min_r, max_r));
                                     window.refresh();
                                 }
                             });

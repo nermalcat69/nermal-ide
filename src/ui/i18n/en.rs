@@ -167,6 +167,10 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SettingsDimInactivePanesDesc => {
             "Fade unfocused panes in a split so the active one stands out."
         }
+        L10nKey::SettingsPaneFullResize => "Drag panes to the edge",
+        L10nKey::SettingsPaneFullResizeDesc => {
+            "Let a split divider drag almost all the way to the edge, shrinking its neighbour down to a sliver."
+        }
         L10nKey::SettingsOpenThemesFolder => "Open themes folder",
         L10nKey::SettingsChangeThemeImage => "Change…",
         L10nKey::SettingsChooseThemeImage => "Choose…",

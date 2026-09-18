@@ -150,6 +150,12 @@ pub struct Config {
     pub window_backdrop: WindowBackdrop,
     #[serde(default = "default_true")]
     pub dim_inactive_panes: bool,
+    /// Lets a split divider drag almost to the edge, shrinking its neighbour
+    /// down to a sliver instead of stopping at 10%. Off by default: most
+    /// people drag a divider expecting the other pane to stay usable, not
+    /// disappear.
+    #[serde(default)]
+    pub pane_full_resize: bool,
     pub keybindings: HashMap<String, String>,
     #[serde(default = "default_preset")]
     pub keybinding_preset: String,
@@ -621,6 +627,7 @@ impl Default for Config {
             window_blur: None,
             window_backdrop: WindowBackdrop::default(),
             dim_inactive_panes: true,
+            pane_full_resize: false,
             keybindings: HashMap::new(),
             keybinding_preset: default_preset(),
             prefix: default_prefix(),

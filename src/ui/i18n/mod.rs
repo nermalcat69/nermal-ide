@@ -200,6 +200,8 @@ l10n_keys! {
     FollowTheme,
     SettingsDimInactivePanes,
     SettingsDimInactivePanesDesc,
+    SettingsPaneFullResize,
+    SettingsPaneFullResizeDesc,
     SettingsOpenThemesFolder,
     SettingsChangeThemeImage,
     SettingsChooseThemeImage,

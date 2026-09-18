@@ -154,6 +154,8 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::FollowTheme => "跟随主题",
         L10nKey::SettingsDimInactivePanes => "调暗非活动窗格",
         L10nKey::SettingsDimInactivePanesDesc => "在分屏中淡化未聚焦的窗格，让活动窗格更突出。",
+        L10nKey::SettingsPaneFullResize => "拖拽窗格至边缘",
+        L10nKey::SettingsPaneFullResizeDesc => "允许将分屏的拖动条拖到接近边缘，把相邻窗格缩小到极小。",
         L10nKey::SettingsOpenThemesFolder => "打开主题文件夹",
         L10nKey::SettingsChangeThemeImage => "更改…",
         L10nKey::SettingsChooseThemeImage => "选择…",
