@@ -287,7 +287,7 @@ edition = "2024"
 # they must never drift apart. This is the line a release bump edits (and the
 # one nightly's `awk '/^version = /'` stamps: it is the first such line in the
 # file, since the package entries above are all `version.workspace = true`).
-version = "0.0.3"
+version = "0.0.1"
 
 [workspace.dependencies]
 # Vendored, not a git dependency: nermal is its own project and does not
