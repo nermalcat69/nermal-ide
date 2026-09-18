@@ -2828,7 +2828,17 @@ impl NermalApp {
                     .flex_none()
                     .w(px(120.))
                     .px(px(6.))
-                    .child(Input::new(&input).xsmall()),
+                    .child(Input::new(&input).xsmall())
+                    // Most of what a click here can land on — another
+                    // category tile, an instance row's plain chrome, empty
+                    // strip space — never calls `window.focus`, so gpui's
+                    // focus never actually leaves the box and `InputEvent::
+                    // Blur` (which fires on a real focus change) never comes.
+                    // Bounds-based dismissal is the same rung the popover and
+                    // combobox widgets already stand on for this.
+                    .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                        this.cancel_new_instance_category(cx);
+                    })),
             );
         } else {
             strip = strip.child(

@@ -258,11 +258,28 @@ fn launched_shell_program(cmd: &CommandBuilder, resolved_program: &str) -> Strin
         .unwrap_or_else(|| resolved_program.to_string())
 }
 
+/// Whether `dir` is a cwd with no real meaning behind it: the Unix "no
+/// controlling shell put me anywhere" root, or the directory the running
+/// binary itself lives in.
+///
+/// A GUI launched from a Windows shortcut or a double-clicked install-dir exe
+/// inherits that directory as its cwd — there is no shell above it to have
+/// cd'd anywhere first. Handing that straight to the shell opens the very
+/// first pane sitting next to LICENSE.txt and nermal-app.exe, which reads as
+/// nermal opening the install folder rather than a terminal.
+fn is_meaningless_cwd(dir: &std::path::Path, exe_dir: Option<&std::path::Path>) -> bool {
+    dir == std::path::Path::new("/") || exe_dir == Some(dir)
+}
+
 fn initial_working_directory(cwd: Option<PathBuf>) -> Option<PathBuf> {
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(std::path::Path::to_path_buf));
     let fallback = std::env::current_dir()
         .ok()
-        .filter(|d| d != std::path::Path::new("/"))
-        .or_else(|| std::env::var_os("HOME").map(std::path::PathBuf::from));
+        .filter(|d| !is_meaningless_cwd(d, exe_dir.as_deref()))
+        .or_else(|| std::env::var_os("HOME").map(std::path::PathBuf::from))
+        .or_else(|| std::env::var_os("USERPROFILE").map(std::path::PathBuf::from));
     let forced = crate::core::config::working_directory_base();
     // A configured "Start in" path that is not a directory can never win the
     // pick below, so every new pane silently lands on the fallback and the
@@ -3589,6 +3606,20 @@ mod tests {
         let got = initial_working_directory(Some(file.clone()));
         assert_ne!(got.as_deref(), Some(file.as_path()));
         let _ = std::fs::remove_file(&file);
+    }
+
+    #[test]
+    fn a_bare_launch_never_falls_back_to_the_installed_binarys_own_folder() {
+        // What a Windows shortcut with no WorkingDir set hands the process:
+        // its own install directory as the inherited cwd.
+        let install_dir = Path::new("/opt/nermal");
+        assert!(is_meaningless_cwd(install_dir, Some(install_dir)));
+        // A real cwd the user (or a shell) actually chose is left alone, even
+        // when it happens to share a name with the binary's directory.
+        let elsewhere = Path::new("/home/user/projects/nermal");
+        assert!(!is_meaningless_cwd(elsewhere, Some(install_dir)));
+        // The pre-existing Unix guard: no controlling shell put us anywhere.
+        assert!(is_meaningless_cwd(Path::new("/"), None));
     }
 
     #[cfg(any(target_os = "macos", target_os = "linux"))]
