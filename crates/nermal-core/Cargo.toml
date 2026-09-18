@@ -66,7 +66,7 @@ smallvec.workspace = true
 # behind one blocking `Read`/`Write`/`resize` API. This is what lets
 # `daemon::pane` share a single code path across platforms instead of
 # hand-rolling fd/ioctl/signal code.
-portable-pty = "0.8"
+portable-pty = "0.9"
 
 # Native (pure-Rust) SSH client for the daemon's russh session engine
 # (`daemon::ssh`) — see the root manifest's note for why we own this stack
