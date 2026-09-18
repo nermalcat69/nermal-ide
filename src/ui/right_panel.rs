@@ -18,6 +18,23 @@ use crate::ui::scrollbar::with_vertical_scrollbar;
 
 pub(crate) const MIN_WIDTH: f32 = 216.;
 
+/// How wide the panel grows to when a terminal is docked into it, if it was
+/// narrower than this already — enough room to actually type in it. Only a
+/// floor to grow *to*: a panel already dragged wider is left alone.
+const DOCKED_PANEL_TARGET_W: f32 = 420.;
+
+/// How tall the docked terminal defaults to before anyone drags it.
+pub(crate) const DEFAULT_DOCKED_TERMINAL_H: f32 = 240.;
+
+/// One row of the instances list, close enough for the cap below — the same
+/// approximation `document_body_px` makes about its own layout.
+const INSTANCE_ROW_H: f32 = 40.;
+
+/// How many rows of the instances list stay visible once a terminal is
+/// docked below it. Past this it scrolls, so dragging the terminal taller
+/// never starves the list down to nothing — see [`render_panel_agents`].
+const DOCKED_LIST_ROWS: f32 = 3.;
+
 /// How wide a panel edge is to grab. Both edges a window can drag — the tab
 /// sidebar's and this panel's — are the same target, so they are one number.
 pub(crate) const RESIZE_HANDLE_WIDTH: f32 = 8.;
@@ -125,6 +142,53 @@ pub(crate) fn forwards_port(m: &ManagedForward, port: u16) -> bool {
 /// Stopping propagation buys the same "this click is ours, not the row's"
 /// without lying to the hit test: children register their handlers after this
 /// one and gpui bubbles back to front, so a button still gets its click first.
+/// The `+added −removed` figure a changed-file row shows for itself — shared
+/// by the working-tree list (`scm/panel.rs`) and a commit's own file list
+/// (`scm/detail.rs`), which draw their rows from the same two steps and are
+/// meant to stay pixel-identical.
+///
+/// Resting weight, not the diff overlay's full saturation: green still means
+/// added, but a column of these down a list should not outshout the names
+/// above them — the same reasoning `tab_sidebar.rs`'s per-repo counts already
+/// follow.
+pub(crate) fn diff_stat_chip(
+    added: Option<u32>,
+    removed: Option<u32>,
+    mono: &gpui::SharedString,
+    cx: &mut Context<NermalApp>,
+) -> AnyElement {
+    let added_ink = crate::ui::presets::resting_ink(
+        cx.theme().success,
+        cx.theme().muted_foreground,
+        cx.theme().sidebar,
+    );
+    let removed_ink = crate::ui::presets::resting_ink(
+        cx.theme().danger,
+        cx.theme().muted_foreground,
+        cx.theme().sidebar,
+    );
+    h_flex()
+        .flex_none()
+        .gap(px(4.))
+        .text_size(rems(META_MONO))
+        .font_family(mono.clone())
+        .when(added.is_some_and(|n| n > 0), |row| {
+            row.child(
+                div()
+                    .text_color(added_ink)
+                    .child(format!("+{}", added.unwrap_or(0))),
+            )
+        })
+        .when(removed.is_some_and(|n| n > 0), |row| {
+            row.child(
+                div()
+                    .text_color(removed_ink)
+                    .child(format!("−{}", removed.unwrap_or(0))),
+            )
+        })
+        .into_any_element()
+}
+
 pub(crate) fn action_strip(row: &gpui::SharedString, backing: u32) -> gpui::Div {
     h_flex()
         .absolute()
@@ -234,6 +298,14 @@ pub(crate) struct RightPanelState {
     /// the Info tab has in front.
     pub(crate) instance_memory: std::collections::HashMap<u64, u64>,
     pub(crate) instance_memory_watching: bool,
+    /// The terminal instance, if any, shown live at the bottom of the
+    /// Instances tab instead of in its own pane — see
+    /// `NermalApp::dock_terminal_to_sidebar`. Keyed by `pane_id`, the same
+    /// stable id `instance_memory` already uses, rather than the leaf's
+    /// `EntityId`: closing and reopening the tab that owned it must not
+    /// silently re-adopt an unrelated new terminal that happens to reuse an
+    /// `EntityId` slot.
+    pub(crate) docked_terminal: Option<u64>,
 }
 
 /// How many renders a reveal waits for its row to show up. Generous: it costs
@@ -540,6 +612,50 @@ impl NermalApp {
         self.right_panel_width
             .get()
             .clamp(MIN_WIDTH, self.right_panel_max_px(window, cx))
+    }
+
+    /// The terminal currently docked in this panel, if the one it names is
+    /// still open somewhere — a tab closed while its terminal was docked
+    /// takes the terminal (and the dock) with it.
+    fn docked_terminal_view(
+        &self,
+        cx: &gpui::App,
+    ) -> Option<gpui::Entity<crate::terminal::view::TerminalView>> {
+        let id = self.right_panel.docked_terminal?;
+        self.tabs
+            .iter()
+            .flat_map(|t| t.pane.terminals())
+            .find(|v| v.read(cx).pane_id == id)
+    }
+
+    /// Shows `pane_id`'s terminal live in the right panel instead of in its
+    /// own pane — see [`crate::ui::pane::PaneChrome::docked_terminal`]. Also
+    /// how the Instances list switches which terminal is shown: calling this
+    /// with a different id just swaps which one the panel names, and the
+    /// leaf that used to be named goes back to showing its terminal live on
+    /// the very next render, since that check is a plain comparison rather
+    /// than anything this has to unwind.
+    pub(crate) fn dock_terminal_to_sidebar(
+        &mut self,
+        pane_id: u64,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.right_panel.docked_terminal = Some(pane_id);
+        self.set_right_panel_tab(RightPanelTab::Agents, cx);
+        let target = self
+            .right_panel_max_px(window, cx)
+            .min(DOCKED_PANEL_TARGET_W);
+        if self.right_panel_width.get() < target {
+            self.right_panel_width.set(target);
+            self.update_config(cx, |cfg| cfg.right_panel_width = target);
+        }
+        cx.notify();
+    }
+
+    pub(crate) fn undock_terminal(&mut self, cx: &mut Context<Self>) {
+        self.right_panel.docked_terminal = None;
+        cx.notify();
     }
 
     pub(crate) fn toggle_right_panel(&mut self, cx: &mut Context<Self>) {
@@ -2396,7 +2512,33 @@ impl NermalApp {
                 .filter(|&&bytes| bytes > 0)
                 .map(|&bytes| format_memory(bytes));
             let kill_leaf = row.leaf.clone();
+            let pane_id = row.pane_id;
+            let docked_here = self.right_panel.docked_terminal == Some(pane_id);
             let rename_tile = action_strip(&row_id, sf.hover)
+                .child(
+                    self.info_tile_icon(
+                        ("panel-agent-dock", i),
+                        Icon::new(if docked_here {
+                            IconName::ArrowLeft
+                        } else {
+                            IconName::PanelRightOpen
+                        }),
+                        t(if docked_here {
+                            L10nKey::PaneMoveBackToMain
+                        } else {
+                            L10nKey::PaneShowHere
+                        }),
+                        cx,
+                    )
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        cx.stop_propagation();
+                        if docked_here {
+                            this.undock_terminal(cx);
+                        } else {
+                            this.dock_terminal_to_sidebar(pane_id, window, cx);
+                        }
+                    })),
+                )
                 .child(
                     self.info_tile_icon(
                         ("panel-agent-rename", i),
@@ -2432,6 +2574,7 @@ impl NermalApp {
                     .px(px(ROW_INSET))
                     .py(px(3.))
                     .rounded(px(5.))
+                    .when(docked_here, |d| d.bg(gpui::rgb(sf.hover)))
                     .hover(|s| s.bg(gpui::rgb(sf.hover)))
                     .child(avatar)
                     .child(name_area)
@@ -2450,10 +2593,158 @@ impl NermalApp {
                     })),
             );
         }
-        self.panel_scroll(
-            v_flex().child(categories).child(list).into_any_element(),
-            title,
+        let Some(docked_view) = self.docked_terminal_view(cx) else {
+            return self.panel_scroll(
+                v_flex().child(categories).child(list).into_any_element(),
+                title,
+            );
+        };
+        let list_capped = div()
+            .id("right-panel-agents-list")
+            .flex_none()
+            .max_h(px(INSTANCE_ROW_H * DOCKED_LIST_ROWS))
+            .overflow_y_scroll()
+            .track_scroll(&self.right_panel.scroll)
+            .child(v_flex().child(categories).child(list));
+        let height = self
+            .docked_terminal_height
+            .get()
+            .max(crate::ui::app::TERMINAL_MIN_H);
+        let (backing, handle) = self.docked_terminal_resize(cx);
+        let terminal_box = v_flex()
+            .id("right-panel-docked-terminal")
+            .relative()
+            .flex_none()
+            .w_full()
+            .h(px(height))
+            .border_t_1()
+            .border_color(cx.theme().sidebar_border)
+            .child(handle)
+            .child(
+                h_flex()
+                    .flex_none()
+                    .items_center()
+                    .justify_end()
+                    .px(px(6.))
+                    .py(px(4.))
+                    .child(
+                        crate::ui::tab_strip::hit_target(
+                            Button::new("docked-terminal-undock")
+                                .icon(IconName::ArrowLeft)
+                                .ghost()
+                                .xsmall(),
+                        )
+                        .tooltip(t(L10nKey::PaneMoveBackToMain))
+                        .on_click(cx.listener(|this, _, _window, cx| {
+                            this.undock_terminal(cx);
+                        })),
+                    ),
+            )
+            .child(div().flex_1().min_h_0().w_full().child(docked_view));
+        v_flex()
+            .id("right-panel-agents-docked")
+            .relative()
+            .flex_1()
+            .min_h_0()
+            .child(title)
+            .child(with_vertical_scrollbar(
+                "right-panel-agents-list-scrollbar",
+                list_capped,
+                &self.right_panel.scroll,
+            ))
+            .child(terminal_box)
+            .child(backing)
+            .into_any_element()
+    }
+
+    fn docked_terminal_resize(&self, cx: &mut Context<Self>) -> (AnyElement, AnyElement) {
+        use gpui::{Bounds, MouseButton, MouseMoveEvent, MouseUpEvent, Pixels, canvas};
+        use std::cell::Cell as StdCell;
+        use std::rc::Rc;
+
+        let container: Rc<StdCell<Option<Bounds<Pixels>>>> = Rc::new(StdCell::new(None));
+        let backing = canvas(
+            {
+                let container = container.clone();
+                move |bounds, _window, _cx| container.set(Some(bounds))
+            },
+            {
+                let container = container.clone();
+                let height_cell = self.docked_terminal_height.clone();
+                let dragging = self.docked_terminal_dragging.clone();
+                move |_bounds, _state, window, _cx| {
+                    window.on_mouse_event({
+                        let container = container.clone();
+                        let height_cell = height_cell.clone();
+                        let dragging = dragging.clone();
+                        move |ev: &MouseMoveEvent, _phase, window, _cx| {
+                            if !dragging.get() {
+                                return;
+                            }
+                            let Some(b) = container.get() else {
+                                return;
+                            };
+                            let bottom = b.origin.y + b.size.height;
+                            let raw = (bottom - ev.position.y).as_f32();
+                            // Approximate, like `document_body_px`: the title
+                            // row above the list is a fixed height this
+                            // container's own bounds do not separate out.
+                            let reserved = crate::ui::app::TITLE_BAR_HEIGHT
+                                + INSTANCE_ROW_H * DOCKED_LIST_ROWS
+                                + crate::ui::app::EDGE_CLEARANCE;
+                            let max = (b.size.height.as_f32() - reserved)
+                                .max(crate::ui::app::TERMINAL_MIN_H);
+                            height_cell.set(raw.clamp(crate::ui::app::TERMINAL_MIN_H, max));
+                            window.refresh();
+                        }
+                    });
+                    window.on_mouse_event({
+                        let dragging = dragging.clone();
+                        move |_ev: &MouseUpEvent, _phase, window, _cx| {
+                            if !dragging.get() {
+                                return;
+                            }
+                            dragging.set(false);
+                            window.refresh();
+                        }
+                    });
+                }
+            },
         )
+        .absolute()
+        .inset_0()
+        .into_any_element();
+
+        let active = self.docked_terminal_dragging.get();
+        let handle = div()
+            .group("docked-terminal-resize")
+            .occlude()
+            .absolute()
+            .top(px(-(RESIZE_HANDLE_WIDTH / 2.)))
+            .left_0()
+            .w_full()
+            .h(px(RESIZE_HANDLE_WIDTH))
+            .flex()
+            .items_center()
+            .justify_center()
+            .cursor_row_resize()
+            .child(
+                div()
+                    .h(px(1.))
+                    .w_full()
+                    .when(active, |d| d.bg(cx.theme().drag_border))
+                    .group_hover("docked-terminal-resize", |s| s.bg(cx.theme().drag_border)),
+            )
+            .on_mouse_down(MouseButton::Left, {
+                let dragging = self.docked_terminal_dragging.clone();
+                move |_ev, window, _cx| {
+                    dragging.set(true);
+                    window.refresh();
+                }
+            })
+            .into_any_element();
+
+        (backing, handle)
     }
 
     /// The horizontal, scrollable strip of categories above the instance

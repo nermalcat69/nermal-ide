@@ -832,6 +832,19 @@ impl NermalApp {
         .detach();
     }
 
+    /// File-menu "New File": creates a file under the workspace's primary
+    /// attached folder, via the same inline-edit flow the tree's own
+    /// right-click "New File" item already uses.
+    pub(crate) fn new_file_from_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(root) = self.tab_code().and_then(|c| c.roots.first()).cloned() else {
+            return;
+        };
+        if !self.file_tree_on_screen(cx) {
+            self.reveal_file_tree_sidebar(cx);
+        }
+        self.file_tree_begin_edit(TreeEditKind::NewFile, &root, true, window, cx);
+    }
+
     fn file_tree_sync_watch(&mut self, host: SharedHost, cx: &mut Context<Self>) {
         let union: HashSet<PathBuf> = self
             .code

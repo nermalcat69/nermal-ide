@@ -525,6 +525,10 @@ mod tests {
             submodule: None,
             rename_score: None,
             conflict: None,
+            staged_added: None,
+            staged_removed: None,
+            unstaged_added: None,
+            unstaged_removed: None,
         }
     }
 

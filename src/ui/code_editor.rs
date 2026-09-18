@@ -9,7 +9,7 @@ use gpui::{
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{Input, InputEvent, InputState, Position, TabSize};
-use gpui_component::menu::ContextMenuExt as _;
+use gpui_component::menu::{ContextMenuExt as _, PopupMenu, PopupMenuItem};
 use gpui_component::{
     ActiveTheme as _, Icon, IconName, Sizable as _, WindowExt as _, h_flex, v_flex,
 };
@@ -713,9 +713,7 @@ impl NermalApp {
             return false;
         };
         code.visible = true;
-        let f = code.files.remove(ix);
-        code.files.insert(0, f);
-        code.active = 0;
+        code.active = ix;
         self.focus_editor(window, cx);
         self.apply_pending_cursor(host, path, path, window, cx);
         cx.notify();
@@ -1076,6 +1074,43 @@ impl NermalApp {
         .detach();
     }
 
+    /// Closes every open file except `keep_ix`, by identity rather than
+    /// index — each close can shift the indices of the ones still open, and
+    /// a dirty file's close does not even finish until its save/discard
+    /// prompt answers, well after this loop returns.
+    fn editor_close_others(&mut self, keep_ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(code) = self.tab_code() else {
+            return;
+        };
+        let Some(keep_id) = code.files.get(keep_ix).map(|f| f.input.entity_id()) else {
+            return;
+        };
+        let ids: Vec<_> = code
+            .files
+            .iter()
+            .map(|f| f.input.entity_id())
+            .filter(|id| *id != keep_id)
+            .collect();
+        for id in ids {
+            if let Some(ix) = self.editor_file_position(id) {
+                self.editor_close_file(ix, window, cx);
+            }
+        }
+    }
+
+    /// Closes every open file, by identity — see [`Self::editor_close_others`].
+    fn editor_close_all(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(code) = self.tab_code() else {
+            return;
+        };
+        let ids: Vec<_> = code.files.iter().map(|f| f.input.entity_id()).collect();
+        for id in ids {
+            if let Some(ix) = self.editor_file_position(id) {
+                self.editor_close_file(ix, window, cx);
+            }
+        }
+    }
+
     pub(crate) fn editor_close_active_if_focused(
         &mut self,
         window: &mut Window,
@@ -1335,15 +1370,139 @@ impl NermalApp {
             .into_any_element()
     }
 
+    /// One chip per open file, so switching between them (README.md,
+    /// LICENSE, …) is a click rather than a trip through the tree every
+    /// time. Reuses the terminal tab strip's chip-close visuals
+    /// (`tab_strip::hit_target`) rather than drawing new ones.
+    fn render_editor_tabs(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let files: Vec<(SharedString, bool)> = self
+            .tab_code()
+            .map(|c| c.files.iter().map(|f| (f.label(), f.dirty)).collect())
+            .unwrap_or_default();
+        let active_ix = self.tab_code().map(|c| c.active).unwrap_or(0);
+        let mut row = h_flex()
+            .id("editor-tabs")
+            .flex_1()
+            .min_w_0()
+            .h_full()
+            .items_center()
+            .gap_1()
+            .overflow_x_scroll();
+        if files.is_empty() {
+            return row.child(
+                div()
+                    .text_sm()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(t(L10nKey::EditorNoFileOpen)),
+            );
+        }
+        for (i, (label, dirty)) in files.into_iter().enumerate() {
+            let is_active = i == active_ix;
+            let menu_app = cx.entity().downgrade();
+            let mut chip = h_flex()
+                .id(("editor-tab", i))
+                .flex_shrink_0()
+                .items_center()
+                .gap_1()
+                .h(px(crate::ui::app::TILE_SIZE))
+                .px_2()
+                .rounded_md()
+                .cursor_pointer()
+                .when(is_active, |d| d.bg(cx.theme().secondary))
+                .when(!is_active, |d| {
+                    d.hover(|s| s.bg(cx.theme().muted.opacity(0.6)))
+                })
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    if let Some(code) = this.tab_code_mut() {
+                        code.active = i;
+                    }
+                    this.focus_editor(window, cx);
+                    cx.notify();
+                }))
+                .context_menu(move |menu, _window, cx| {
+                    Self::editor_tab_context_menu(menu, i, &menu_app, cx)
+                })
+                .child(
+                    div()
+                        .max_w(px(160.))
+                        .min_w_0()
+                        .text_ellipsis()
+                        .text_sm()
+                        .child(label),
+                );
+            if dirty {
+                chip = chip.child(
+                    div()
+                        .flex_none()
+                        .size(px(6.))
+                        .rounded_full()
+                        .bg(cx.theme().warning),
+                );
+            }
+            chip = chip.child(
+                crate::ui::tab_strip::hit_target(
+                    Button::new(("editor-tab-close", i))
+                        .icon(IconName::Close)
+                        .ghost()
+                        .xsmall(),
+                )
+                .tooltip(t(L10nKey::TabContextCloseTab))
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    cx.stop_propagation();
+                    this.editor_close_file(i, window, cx);
+                })),
+            );
+            row = row.child(chip);
+        }
+        row
+    }
+
+    fn editor_tab_context_menu(
+        menu: PopupMenu,
+        ix: usize,
+        app: &gpui::WeakEntity<Self>,
+        cx: &gpui::App,
+    ) -> PopupMenu {
+        let file_count = app
+            .upgrade()
+            .and_then(|e| e.read(cx).tab_code().map(|c| c.files.len()))
+            .unwrap_or(0);
+        menu.min_w(px(200.))
+            .item(
+                PopupMenuItem::new(t(L10nKey::TabContextCloseTab)).on_click({
+                    let app = app.clone();
+                    move |_, window, cx| {
+                        let _ = app.update(cx, |this, cx| this.editor_close_file(ix, window, cx));
+                    }
+                }),
+            )
+            .item(
+                PopupMenuItem::new(t(L10nKey::AppMenuCloseOtherTabs))
+                    .disabled(file_count <= 1)
+                    .on_click({
+                        let app = app.clone();
+                        move |_, window, cx| {
+                            let _ =
+                                app.update(cx, |this, cx| this.editor_close_others(ix, window, cx));
+                        }
+                    }),
+            )
+            .item(
+                PopupMenuItem::new(t(L10nKey::EditorCloseAllTabs)).on_click({
+                    let app = app.clone();
+                    move |_, window, cx| {
+                        let _ = app.update(cx, |this, cx| this.editor_close_all(window, cx));
+                    }
+                }),
+            )
+    }
+
     fn render_editor_header(
         &self,
         chrome: DocumentChrome,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
-        let active = self.tab_code().and_then(|c| c.active_file());
-        let name = active.map(|f| f.label());
-        let dirty = active.is_some_and(|f| f.dirty);
         // `TITLE_BAR_LEAD` is the room macOS's traffic lights need. Only a
         // header that starts at the left edge of the window has them to clear,
         // and a docked column never does.
@@ -1359,6 +1518,7 @@ impl NermalApp {
             row
         };
         let menu_app = cx.entity().downgrade();
+        let tabs = self.render_editor_tabs(cx);
         row.flex_none()
             .h(px(crate::ui::app::TITLE_BAR_HEIGHT))
             .items_center()
@@ -1367,28 +1527,7 @@ impl NermalApp {
             .pr(px(crate::ui::app::tile_trailing_inset()))
             .border_b_1()
             .border_color(cx.theme().border)
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .text_ellipsis()
-                    .text_sm()
-                    .when(name.is_none(), |d| {
-                        d.text_color(cx.theme().muted_foreground)
-                    })
-                    .child(
-                        name.unwrap_or_else(|| SharedString::from(t(L10nKey::EditorNoFileOpen))),
-                    ),
-            )
-            .when(dirty, |d| {
-                d.child(
-                    div()
-                        .flex_none()
-                        .size(px(6.))
-                        .rounded_full()
-                        .bg(cx.theme().warning),
-                )
-            })
+            .child(tabs)
             .child(
                 div().occlude().flex_shrink_0().child(
                     crate::ui::tab_strip::chrome_tile_sized(

@@ -26,7 +26,9 @@ use std::rc::Rc;
 use crate::core::config::{
     Config, DOCUMENT_RATIO_MAX, DOCUMENT_RATIO_MIN, DOCUMENT_RATIO_STOPS, DocumentLayout,
 };
-use crate::ui::app::{DOCUMENT_MIN_W, NermalApp, OverlayTop, TERMINAL_MIN_W, document_column_px};
+use crate::ui::app::{
+    DOCUMENT_MIN_W, EDGE_CLEARANCE, NermalApp, OverlayTop, TERMINAL_MIN_H, document_column_px,
+};
 use crate::ui::i18n::{L10nKey, t};
 use crate::ui::right_panel::RESIZE_HANDLE_WIDTH;
 
@@ -451,7 +453,8 @@ impl NermalApp {
 /// the next launch, and a column dropped against the edge of a wide window
 /// would reopen hundreds of points from where it was left.
 pub(crate) fn dragged_ratio(body: f32, raw: f32) -> f32 {
-    let w = raw.clamp(DOCUMENT_MIN_W, (body - TERMINAL_MIN_W).max(DOCUMENT_MIN_W));
+    let terminal_floor = TERMINAL_MIN_H + EDGE_CLEARANCE;
+    let w = raw.clamp(DOCUMENT_MIN_W, (body - terminal_floor).max(DOCUMENT_MIN_W));
     (w / body).clamp(DOCUMENT_RATIO_MIN, DOCUMENT_RATIO_MAX)
 }
 
@@ -474,7 +477,11 @@ mod tests {
         DOCUMENT_RATIO_HALF, DOCUMENT_RATIO_MAX, DOCUMENT_RATIO_MIN, DOCUMENT_RATIO_THIRD,
         DOCUMENT_RATIO_TWO_THIRDS,
     };
-    use crate::ui::app::{DOCUMENT_MIN_W, TERMINAL_MIN_W, document_column_px};
+    use crate::ui::app::{DOCUMENT_MIN_W, EDGE_CLEARANCE, TERMINAL_MIN_H, document_column_px};
+
+    /// The terminal's floor, as `document_column_px` enforces it: a small
+    /// nominal height plus the clearance always left above the bottom edge.
+    const TERMINAL_FLOOR: f32 = TERMINAL_MIN_H + EDGE_CLEARANCE;
 
     /// Nothing the divider can write is something the next launch moves.
     /// `Config::sanitize` clamps `document_ratio` into a band, so a drag that
@@ -494,7 +501,7 @@ mod tests {
                 // And the width that ratio draws still holds the invariant the
                 // whole budget exists for.
                 let drawn = document_column_px(body, r).expect("a body that seats both");
-                assert!(body - drawn >= TERMINAL_MIN_W - f32::EPSILON);
+                assert!(body - drawn >= TERMINAL_FLOOR - f32::EPSILON);
                 assert!(drawn >= DOCUMENT_MIN_W - f32::EPSILON);
             }
         }
@@ -528,18 +535,20 @@ mod tests {
     }
 
     /// Two thirds is allowed past the half-window cap the side panels obey.
-    /// Only the terminal's floor binds it.
+    /// Only the terminal's floor binds it — and now that the floor is a
+    /// nominal one line rather than forty columns, it takes a ratio pushed
+    /// close to the full share to reach it.
     #[test]
-    fn two_thirds_is_two_thirds_until_the_terminal_floor_says_otherwise() {
+    fn a_ratio_near_the_full_share_still_leaves_the_terminal_its_floor() {
         let wide = 1200.;
         assert_eq!(document_column_px(wide, 2. / 3.), Some(wide * 2. / 3.));
 
-        // 800 * 2/3 is 533, which would leave the terminal 267 — under its
-        // floor — so the column stops where the terminal starts.
-        let tight = 800.;
+        // 400 * 0.99 is 396, which would leave the terminal 4 — under its
+        // floor — so the column stops where the terminal's floor starts.
+        let tight = 400.;
         assert_eq!(
-            document_column_px(tight, 2. / 3.),
-            Some(tight - TERMINAL_MIN_W)
+            document_column_px(tight, 0.99),
+            Some(tight - TERMINAL_FLOOR)
         );
     }
 
@@ -556,7 +565,7 @@ mod tests {
     /// exact so that widening by a point re-docks.
     #[test]
     fn a_window_too_narrow_for_both_has_no_docked_width() {
-        let floor = TERMINAL_MIN_W + DOCUMENT_MIN_W;
+        let floor = TERMINAL_FLOOR + DOCUMENT_MIN_W;
         assert_eq!(document_column_px(floor - 1., 0.5), None);
         assert_eq!(document_column_px(floor, 0.5), Some(DOCUMENT_MIN_W));
         assert_eq!(document_column_px(f32::NAN, 0.5), None);
@@ -572,7 +581,7 @@ mod tests {
                     continue;
                 };
                 assert!(
-                    body - doc >= TERMINAL_MIN_W - f32::EPSILON,
+                    body - doc >= TERMINAL_FLOOR - f32::EPSILON,
                     "body {body} ratio {ratio} left the terminal {}",
                     body - doc
                 );
@@ -586,7 +595,7 @@ mod tests {
 mod gpui_tests {
     use super::*;
     use crate::core::config::{DOCUMENT_RATIO_TWO_THIRDS, DocumentLayout};
-    use crate::ui::app::test_window;
+    use crate::ui::app::{TERMINAL_MIN_W, test_window};
     use crate::ui::pane::{Pane, PaneSlot};
     use crate::ui::pending_pane::{PendingPane, PendingSpawn};
     use gpui::{Entity, TestAppContext, VisualTestContext, px, size};
@@ -857,12 +866,14 @@ mod gpui_tests {
     ///
     /// A short window rather than a narrow one: the document shares the
     /// terminal column's *height* now, so it is the window's height, not its
-    /// width, that a floor can run out of room in.
+    /// width, that a floor can run out of room in. The terminal's floor is
+    /// nominal now, so it takes a window shorter than the document's own
+    /// floor (280) plus that nominal one (33) to run out of room.
     #[gpui::test]
     fn a_short_window_falls_back_without_saving_it(cx: &mut TestAppContext) {
         let (app, mut vcx) = window(cx, 1440.);
         // Docked by default — nothing to toggle on.
-        vcx.simulate_resize(size(px(1440.), px(500.)));
+        vcx.simulate_resize(size(px(1440.), px(300.)));
         vcx.run_until_parked();
 
         assert_eq!(dock_px(&app, &mut vcx), None, "no room for both");
@@ -908,10 +919,9 @@ mod gpui_tests {
         assert_eq!(tab_layout(&app, &mut vcx), DocumentLayout::Dock);
         let body = app.update_in(&mut vcx, |app, window, cx| app.document_body_px(window, cx));
         let docked = dock_px(&app, &mut vcx).expect("docked again");
-        // Two thirds, or as near as the terminal's floor allows — with both
-        // side panels open a 1440 window has 960 to share, and two thirds of
-        // that would leave the terminal 320.
-        let want = (body * 2. / 3.).min(body - TERMINAL_MIN_W);
+        // Two thirds, or as near as the terminal's (now nominal) floor
+        // allows.
+        let want = (body * 2. / 3.).min(body - (TERMINAL_MIN_H + EDGE_CLEARANCE));
         assert!((docked - want).abs() < 0.5, "{docked} of {body}");
         assert!(docked > body / 2., "wider than the half it started at");
         assert_eq!(

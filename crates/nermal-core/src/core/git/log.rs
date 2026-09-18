@@ -747,7 +747,7 @@ fn is_rev(rev: &str) -> bool {
     !rev.is_empty() && !rev.starts_with('-') && !rev.contains(|c: char| c.is_control())
 }
 
-fn records(stdout: &[u8]) -> Vec<String> {
+pub(crate) fn records(stdout: &[u8]) -> Vec<String> {
     let mut out = Vec::new();
     let mut on_record = |record: &[u8]| out.push(String::from_utf8_lossy(record).into_owned());
     let mut split = RecordSplitter::new(0);
@@ -762,7 +762,7 @@ fn records(stdout: &[u8]) -> Vec<String> {
 /// `-z --numstat`: `<added>\t<removed>\t<path>\0` per file — except for a
 /// rename or a copy, where the third field is *empty* and the old and the new
 /// path follow as two records of their own. A binary file reports `-\t-`.
-fn parse_numstat(stdout: &[u8]) -> HashMap<String, (Option<u32>, Option<u32>, bool)> {
+pub(crate) fn parse_numstat(stdout: &[u8]) -> HashMap<String, (Option<u32>, Option<u32>, bool)> {
     let mut out = HashMap::new();
     let records = records(stdout);
     let mut at = 0usize;

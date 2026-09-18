@@ -754,6 +754,12 @@ impl NermalApp {
                         .child(dir.to_string()),
                 )
             })
+            .child(crate::ui::right_panel::diff_stat_chip(
+                file.added,
+                file.removed,
+                mono,
+                cx,
+            ))
             .into_any_element()
     }
 

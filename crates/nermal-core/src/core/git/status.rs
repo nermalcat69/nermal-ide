@@ -180,6 +180,17 @@ pub struct StatusEntry {
     pub rename_score: Option<u8>,
     /// Always `Some` when `kind == Unmerged`.
     pub conflict: Option<ConflictKind>,
+    /// Lines added/removed between the index and `HEAD` — what the Staged
+    /// group's row shows. `None` for a binary file or one `git diff` has no
+    /// stat for (an untracked file, or one probed before this landed).
+    pub staged_added: Option<u32>,
+    pub staged_removed: Option<u32>,
+    /// Lines added/removed between the working tree and the index — what the
+    /// Changes/Untracked groups' row shows. A file can carry both this pair
+    /// and the staged one at once (`XY == "MM"`), since it appears in both
+    /// groups.
+    pub unstaged_added: Option<u32>,
+    pub unstaged_removed: Option<u32>,
 }
 
 impl StatusEntry {
@@ -617,6 +628,10 @@ impl Parser {
             submodule,
             rename_score: None,
             conflict: None,
+            staged_added: None,
+            staged_removed: None,
+            unstaged_added: None,
+            unstaged_removed: None,
         });
     }
 
@@ -645,6 +660,10 @@ impl Parser {
             submodule,
             rename_score: parse_score(score),
             conflict: None,
+            staged_added: None,
+            staged_removed: None,
+            unstaged_added: None,
+            unstaged_removed: None,
         });
     }
 
@@ -668,6 +687,10 @@ impl Parser {
             // `XY` on a `u` record is the stage pair, not a change pair, so a
             // conflict git does not name is still a conflict.
             conflict: Some(ConflictKind::from_xy(x, y).unwrap_or(ConflictKind::BothModified)),
+            staged_added: None,
+            staged_removed: None,
+            unstaged_added: None,
+            unstaged_removed: None,
         });
     }
 
@@ -686,6 +709,10 @@ impl Parser {
             submodule: None,
             rename_score: None,
             conflict: None,
+            staged_added: None,
+            staged_removed: None,
+            unstaged_added: None,
+            unstaged_removed: None,
         });
     }
 
@@ -866,6 +893,7 @@ pub fn probe_status(host: &dyn Host, cwd: &Path) -> StatusProbe {
     {
         parsed.ahead_behind = rev_list_ahead_behind(host, cwd, &upstream);
     }
+    attach_numstat(host, cwd, &mut parsed.entries);
 
     let listing = host.read_dir(&git_dir, None).unwrap_or_default();
     let operation = detect_operation(host, &git_dir, &listing);
@@ -877,6 +905,38 @@ pub fn probe_status(host: &dyn Host, cwd: &Path) -> StatusProbe {
         operation,
         prefilled_message,
     )))
+}
+
+/// Fills in each entry's added/removed line counts with two more `git diff
+/// --numstat` calls — one against the index (staged), one against the
+/// working tree (unstaged) — reusing the same `-z --numstat` parser
+/// `commit_files` already has for a commit's own diff. An entry `git diff`
+/// has no stat for (an untracked file, or a binary one) is simply left at the
+/// `None` the parser set it to; this only ever adds counts, never entries.
+fn attach_numstat(host: &dyn Host, cwd: &Path, entries: &mut [StatusEntry]) {
+    if entries.is_empty() {
+        return;
+    }
+    let staged = super::git(
+        host,
+        cwd,
+        &["diff", "--cached", "-z", "--numstat", "--find-renames"],
+    )
+    .map(|out| super::log::parse_numstat(out.as_bytes()))
+    .unwrap_or_default();
+    let unstaged = super::git(host, cwd, &["diff", "-z", "--numstat", "--find-renames"])
+        .map(|out| super::log::parse_numstat(out.as_bytes()))
+        .unwrap_or_default();
+    for entry in entries {
+        if let Some(&(added, removed, _)) = staged.get(&entry.path.text) {
+            entry.staged_added = added;
+            entry.staged_removed = removed;
+        }
+        if let Some(&(added, removed, _)) = unstaged.get(&entry.path.text) {
+            entry.unstaged_added = added;
+            entry.unstaged_removed = removed;
+        }
+    }
 }
 
 /// Ask for ahead/behind again when the header could not say.

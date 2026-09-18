@@ -4,6 +4,7 @@ actions!(
     nermal,
     [
         NewTab,
+        NewFile,
         NewWorkspace,
         StopWorkspace,
         DeleteWorkspace,

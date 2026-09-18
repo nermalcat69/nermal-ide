@@ -176,7 +176,6 @@ impl NermalApp {
     /// assembles the layout from, in one place the panel opposite can ask.
     pub(crate) fn sidebar_open(&self, cx: &gpui::App) -> bool {
         cx.global::<Config>().tab_bar_position == crate::core::config::TabBarPosition::Left
-            && !self.tabs.is_empty()
             && !self.sidebar_collapsed
     }
 

@@ -1562,8 +1562,27 @@ impl NermalApp {
                         .child(dir.to_string()),
                 )
             })
+            .child(self.scm_row_stat(group, entry, &mono, cx))
             .child(actions)
             .into_any_element()
+    }
+
+    /// Staged's count is against `HEAD`, everyone else's against the index —
+    /// `StatusEntry`'s own staged/unstaged split — so a file that is both
+    /// (`XY == "MM"`) shows the right half in each group it appears in.
+    fn scm_row_stat(
+        &self,
+        group: ScmGroup,
+        entry: &StatusEntry,
+        mono: &SharedString,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let (added, removed) = if group == ScmGroup::Staged {
+            (entry.staged_added, entry.staged_removed)
+        } else {
+            (entry.unstaged_added, entry.unstaged_removed)
+        };
+        crate::ui::right_panel::diff_stat_chip(added, removed, mono, cx)
     }
 
     /// The buttons that appear over a hovered row.
@@ -2222,6 +2241,10 @@ mod tests {
             submodule: None,
             rename_score: None,
             conflict: (kind == EntryKind::Unmerged).then_some(ConflictKind::BothModified),
+            staged_added: None,
+            staged_removed: None,
+            unstaged_added: None,
+            unstaged_removed: None,
         }
     }
 

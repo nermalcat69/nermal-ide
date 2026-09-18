@@ -192,12 +192,21 @@ const SIDE_PANEL_MAX_RATIO: f32 = 0.5;
 /// less than the terminal width it costs.
 pub(crate) const DOCUMENT_MIN_W: f32 = 280.;
 
-/// How wide the docked document column is, given the width the terminal and the
-/// document share — the window less the sidebar and the right panel — and the
-/// share of it the user asked for.
+/// The shortest the terminal may be squeezed to when a document is docked
+/// above it: about one row, so there is always something there to read and a
+/// handle left to drag it back open with.
+pub(crate) const TERMINAL_MIN_H: f32 = 28.;
+
+/// The gap always left between the terminal and the window's bottom edge, so
+/// dragging the divider down never lets either of them touch it.
+pub(crate) const EDGE_CLEARANCE: f32 = 5.;
+
+/// How tall the docked document column is, given the height the terminal and the
+/// document share — the window less the title bar — and the share of it the
+/// user asked for.
 ///
 /// `None` is the narrow-window answer: there is no way to give both the
-/// terminal and a document a width worth reading, so the caller falls back to
+/// terminal and a document a height worth reading, so the caller falls back to
 /// filling the workspace for this frame. That fallback is *derived*, never
 /// stored — widening the window docks again on the next frame, and the user's
 /// saved `document_layout` is untouched throughout.
@@ -206,13 +215,16 @@ pub(crate) const DOCUMENT_MIN_W: f32 = 280.;
 /// panels obey. That cap is there so neither *panel* can dominate a wide
 /// display; the document is the thing the user is reading, and an increment
 /// that silently became a half on every window wider than about 720 points of
-/// body would be a lie. The terminal's floor still binds.
+/// body would be a lie. The terminal's floor still binds — kept small on
+/// purpose, since height (unlike the width the side panels compete for) has
+/// nothing else to protect.
 pub(crate) fn document_column_px(body: f32, ratio: f32) -> Option<f32> {
-    if !body.is_finite() || body < TERMINAL_MIN_W + DOCUMENT_MIN_W {
+    let terminal_floor = TERMINAL_MIN_H + EDGE_CLEARANCE;
+    if !body.is_finite() || body < terminal_floor + DOCUMENT_MIN_W {
         return None;
     }
     let ratio = if ratio.is_finite() { ratio } else { 0.5 };
-    Some((body * ratio).clamp(DOCUMENT_MIN_W, body - TERMINAL_MIN_W))
+    Some((body * ratio).clamp(DOCUMENT_MIN_W, body - terminal_floor))
 }
 
 pub(crate) const TITLE_BAR_HEIGHT: f32 = 40.;
@@ -932,6 +944,12 @@ pub struct NermalApp {
     pub(crate) settings_hit_anchored: Cell<bool>,
     pub(crate) right_panel_width: Rc<Cell<f32>>,
     pub(crate) right_panel_dragging: Rc<Cell<bool>>,
+    /// How tall the docked terminal (see [`crate::ui::right_panel::RightPanelState::docked_terminal`])
+    /// is dragged to. Not persisted to `Config`: unlike the panel's width,
+    /// this is a rare, session-scoped adjustment, not a layout worth
+    /// remembering across restarts.
+    pub(crate) docked_terminal_height: Rc<Cell<f32>>,
+    pub(crate) docked_terminal_dragging: Rc<Cell<bool>>,
     /// The docked document column's share of the terminal column, live. Held
     /// beside the config value rather than in it for the same reason the two
     /// panel widths are: a drag writes this cell on every mouse move and the
@@ -1575,6 +1593,10 @@ impl NermalApp {
             settings_hit_anchored: Cell::new(false),
             right_panel_width: Rc::new(Cell::new(right_panel_width)),
             right_panel_dragging: Rc::new(Cell::new(false)),
+            docked_terminal_height: Rc::new(Cell::new(
+                crate::ui::right_panel::DEFAULT_DOCKED_TERMINAL_H,
+            )),
+            docked_terminal_dragging: Rc::new(Cell::new(false)),
             document_ratio: Rc::new(Cell::new(document_ratio)),
             document_dragging: Rc::new(Cell::new(false)),
             right_panel_visible,
@@ -3413,7 +3435,6 @@ impl NermalApp {
     pub(crate) fn left_panel_open(&self, cx: &gpui::App) -> bool {
         matches!(cx.global::<Config>().tab_bar_position, TabBarPosition::Left)
             && !self.sidebar_collapsed
-            && !self.tabs.is_empty()
     }
 
     pub(crate) fn set_notify_mode(
@@ -4470,8 +4491,7 @@ impl NermalApp {
         let pointer = window.mouse_position();
         // The two surfaces never share a window: the sidebar *is* the tab bar
         // when it is up, and the strip is what stands in for it when it is not.
-        let vertical = matches!(cx.global::<Config>().tab_bar_position, TabBarPosition::Left)
-            && !self.tabs.is_empty();
+        let vertical = matches!(cx.global::<Config>().tab_bar_position, TabBarPosition::Left);
         let viewport = window.viewport_size();
         let pad = gpui_component::window_paddings(window);
         // The band each surface claims, read off the tabs it drew rather than
@@ -5530,7 +5550,7 @@ impl NermalApp {
         self.bump_command_frecency(&kind, cx);
         match kind {
             NewTab => self.new_tab(window, cx),
-            NewWorkspace => self.open_workspace_form(window, cx),
+            NewWorkspace => self.new_window(cx),
             NewWindow => self.new_window(cx),
             OpenWorkspacePicker => self.open_switcher(window, cx),
             StopWorkspace => self.stop_workspace(self.workspace, window, cx),
@@ -7770,8 +7790,7 @@ impl Render for NermalApp {
         {
             cx.set_active_drag_cursor_style(held, window);
         }
-        let vertical = matches!(cx.global::<Config>().tab_bar_position, TabBarPosition::Left)
-            && !self.tabs.is_empty();
+        let vertical = matches!(cx.global::<Config>().tab_bar_position, TabBarPosition::Left);
         // Asked through the predicate the right panel sizes itself against —
         // two spellings of "is the rail up" is one more than the layout can
         // afford to have disagree.
@@ -7827,6 +7846,8 @@ impl Render for NermalApp {
                             hovered: self.pane_hover.clone(),
                             lifted: crate::ui::pane_drag::lifted(&self.pane_drag),
                             drag: self.pane_drag.clone(),
+                            docked_terminal: self.right_panel.docked_terminal,
+                            app: cx.entity().downgrade(),
                         };
                         active_tab.pane.render(&chrome, window, cx)
                     }
@@ -8081,6 +8102,11 @@ impl Render for NermalApp {
                 .text_color(cx.theme().foreground)
                 .on_modifiers_changed(cx.listener(Self::on_modifiers_changed))
                 .on_action(cx.listener(|this, _: &NewTab, window, cx| this.new_tab(window, cx)))
+                .on_action(
+                    cx.listener(|this, _: &NewFile, window, cx| {
+                        this.new_file_from_menu(window, cx)
+                    }),
+                )
                 .on_action(cx.listener(|this, _: &SelectWorkspace1, window, cx| {
                     this.select_workspace_slot(0, window, cx)
                 }))
@@ -8122,8 +8148,8 @@ impl Render for NermalApp {
                     let id = this.workspace;
                     this.delete_workspace(id, window, cx);
                 }))
-                .on_action(cx.listener(|this, _: &NewWorkspace, window, cx| {
-                    this.open_workspace_form(window, cx);
+                .on_action(cx.listener(|this, _: &NewWorkspace, _window, cx| {
+                    this.new_window(cx);
                 }))
                 .on_action(cx.listener(|this, _: &NewWindow, _window, cx| {
                     this.new_window(cx);
@@ -9505,11 +9531,11 @@ mod window_drag_tests {
 #[cfg(test)]
 mod tests {
     use super::{
-        CloseReason, DOCUMENT_MIN_W, Dir, Pane, Rename, TERMINAL_MIN_W, TITLE_BAR_HEIGHT, Tab,
-        TabAgentSession, clear_window_override_values, close_prompt, document_column_px,
-        join_shell_args, leaf_shares_the_window_daemon, mru_order, pane_free_for,
-        parse_ssh_connect_input, parse_ssh_option_words, rename_outcome, side_panel_max,
-        split_shell_args, strip_band, wd_path_saveable,
+        CloseReason, DOCUMENT_MIN_W, Dir, EDGE_CLEARANCE, Pane, Rename, TERMINAL_MIN_H,
+        TERMINAL_MIN_W, TITLE_BAR_HEIGHT, Tab, TabAgentSession, clear_window_override_values,
+        close_prompt, document_column_px, join_shell_args, leaf_shares_the_window_daemon,
+        mru_order, pane_free_for, parse_ssh_connect_input, parse_ssh_option_words, rename_outcome,
+        side_panel_max, split_shell_args, strip_band, wd_path_saveable,
     };
     use gpui::{Edges, point, px, size};
 
@@ -9690,20 +9716,21 @@ mod tests {
     /// or a widened sidebar is width the terminal silently loses.
     #[test]
     fn widened_panels_still_leave_the_terminal_its_floor() {
-        let viewport = 1440.;
-        // Both dragged well past their floors, and the document asked for the
-        // widest named share there is.
-        let body = viewport - 400. - 320.;
-        let document = document_column_px(body, 2. / 3.).expect("720 points seats both");
+        let terminal_floor = TERMINAL_MIN_H + EDGE_CLEARANCE;
+        // A ratio pushed to the edge of the shared body is still stopped
+        // short of it, leaving the terminal exactly its (now nominal) floor.
+        let body = 400.;
+        let document = document_column_px(body, 0.99).expect("body seats both");
         assert!(
-            body - document >= TERMINAL_MIN_W,
+            body - document >= terminal_floor - f32::EPSILON,
             "terminal got {}",
             body - document
         );
 
-        // Squeezed further, the document is the one that gives up first — and
-        // then stops existing rather than dropping under its own floor.
-        let squeezed = viewport - 600. - 400.;
+        // Squeezed under the document's own floor plus the terminal's, the
+        // document is the one that gives up first — and then stops existing
+        // rather than dropping under its own floor.
+        let squeezed = terminal_floor + DOCUMENT_MIN_W - 1.;
         assert_eq!(document_column_px(squeezed, 0.5), None);
     }
 

@@ -38,7 +38,7 @@ pub(crate) fn set_menus(cx: &mut App) {
             MenuItem::action(t(L10nKey::AppMenuQuit), Quit),
         ]),
         Menu::new(t(L10nKey::AppMenuFile)).items([
-            MenuItem::action(t(L10nKey::AppMenuNewTab), NewTab),
+            MenuItem::action(t(L10nKey::AppMenuNewFile), NewFile),
             MenuItem::action(t(L10nKey::AppMenuNewWorkspace), NewWorkspace),
             MenuItem::action(t(L10nKey::AppMenuNewWorktreeTab), NewWorktreeTab),
             MenuItem::separator(),
