@@ -201,15 +201,17 @@ impl NermalApp {
         .detach();
     }
 
-    /// The folder parked by `home_open_folder`, made into a workspace — the
-    /// same two calls `home_open_folder` used to make on its own before there
-    /// was a Create row to confirm through.
-    fn commit_home_new_workspace(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// The folder parked by `home_open_folder`, made into a workspace in a
+    /// window of its own — `switch_workspace` would rebind *this* window,
+    /// leaving no window behind still showing the dashboard to create a
+    /// second workspace from. `windows::open_at` is the same call `new_window`
+    /// and the switcher's "Open in New Window" make for a fresh workspace,
+    /// just with the folder as its first tab's cwd instead of a bare shell.
+    fn commit_home_new_workspace(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let Some(folder) = self.home_new_workspace.take() else {
             return;
         };
-        self.switch_workspace(None, window, cx);
-        self.new_tab_with_cwd(Some(folder), None, window, cx);
+        crate::ui::windows::open_at(cx, None, Some(folder));
     }
 
     fn cancel_home_new_workspace(&mut self, cx: &mut Context<Self>) {
@@ -675,6 +677,78 @@ mod new_workspace_tests {
             );
             assert!(app.showing_home(), "and no tab was created in its place");
         });
+    }
+
+    /// `Create` opens a second window for the picked folder rather than
+    /// rebinding this one — the dashboard this window is showing must still
+    /// be there afterward, ready to create another workspace, instead of
+    /// having turned into the very workspace just created. Mirrors
+    /// `app.rs`'s own `dispatching_new_window_opens_a_second_window_beside_the_first`,
+    /// which checks the same registry-backed property for the `NewWindow`
+    /// action this shares its call with.
+    #[gpui::test]
+    fn creating_a_workspace_opens_a_second_window_and_keeps_this_one_on_home(
+        cx: &mut TestAppContext,
+    ) {
+        use crate::core::config::Config;
+        use crate::core::session::Session;
+        use crate::ui::app::NermalApp;
+        use crate::ui::windows::WindowRegistry;
+        use gpui::{AppContext as _, VisualTestContext};
+
+        crate::core::config::pin_test_config_dir();
+        cx.executor().allow_parking();
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            cx.set_global(Config::default());
+            crate::ui::keymap::init(cx);
+            WindowRegistry::init(cx);
+        });
+        let window = cx.add_window(|window, cx| {
+            let app =
+                cx.new(|cx| NermalApp::with_session(None, Some(Session::default()), window, cx));
+            gpui_component::Root::new(app, window, cx)
+        });
+        let app = window
+            .update(cx, |root, _, _| {
+                root.view()
+                    .clone()
+                    .downcast::<NermalApp>()
+                    .ok()
+                    .expect("window root wraps a NermalApp")
+            })
+            .unwrap();
+        // Registered the way an opened window registers itself; without it
+        // the count below cannot tell the two windows apart.
+        let handle = window.into();
+        let weak = app.downgrade();
+        app.update(cx, |app, cx| {
+            WindowRegistry::register(cx, app.workspace, handle, weak);
+        });
+
+        let mut vcx = VisualTestContext::from_window(handle, cx);
+        vcx.run_until_parked();
+        assert_eq!(
+            vcx.update(|_, cx| WindowRegistry::count(cx)),
+            1,
+            "the harness starts with exactly the one window"
+        );
+
+        app.update_in(&mut vcx, |app, window, cx| {
+            app.home_new_workspace = Some(std::env::temp_dir());
+            app.commit_home_new_workspace(window, cx);
+        });
+        vcx.run_until_parked();
+
+        assert_eq!(
+            vcx.update(|_, cx| WindowRegistry::count(cx)),
+            2,
+            "Create must open a window, not reuse this one"
+        );
+        assert!(
+            app.read_with(&vcx, |app, _| app.showing_home()),
+            "this window's own dashboard must survive creating the other workspace"
+        );
     }
 }
 

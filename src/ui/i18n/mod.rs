@@ -758,6 +758,7 @@ l10n_keys! {
     FileTreeContextAttachAgent,
     FileTreeContextNewFile,
     FileTreeContextNewFolder,
+    FileTreeNewEntryTooltip,
     FileTreeContextRename,
     FileTreeContextCopyPath,
     FileTreeContextHideDotfiles,
@@ -825,6 +826,15 @@ l10n_keys! {
     PanelUsageProcesses,
     PanelUsageGpu,
     PanelUsageByProcess,
+    PanelNetworkTitle,
+    PanelNetworkEmpty,
+    PanelNetworkConnected,
+    PanelNetworkDisconnected,
+    PanelNetworkReceived,
+    PanelNetworkSent,
+    PanelNetworkDownloadSpeed,
+    PanelNetworkUploadSpeed,
+    PanelNetworkNoRate,
     SettingsSourceControl,
     SettingsScmPostCommit,
     SettingsScmPostCommitDesc,
@@ -1268,6 +1278,7 @@ l10n_keys! {
     CmdRightPanelAgents,
     CmdRightPanelSearch,
     CmdRightPanelUsage,
+    CmdRightPanelNetwork,
     CmdChangeTheme,
     CmdResetFontSize,
     CmdEnterFullScreen,
@@ -1620,6 +1631,9 @@ mod tests {
             L10nKey::SftpContextChmod,
             // Every locale spells this button the same way.
             L10nKey::Ok,
+            // A bare em dash for "no rate yet" — a symbol, not a word, so
+            // every locale spells it the same way.
+            L10nKey::PanelNetworkNoRate,
             // Pure templates: every word in them is a placeholder.
             L10nKey::AppCmdSshProfileTitle,
             L10nKey::HostOpsError,

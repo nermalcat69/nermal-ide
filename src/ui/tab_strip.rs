@@ -1206,6 +1206,11 @@ impl NermalApp {
                 Icon::empty().path("icons/activity.svg"),
                 L10nKey::PanelUsageTitle,
             ),
+            (
+                RightPanelTab::Network,
+                Icon::empty().path("icons/globe.svg"),
+                L10nKey::PanelNetworkTitle,
+            ),
         ]
         .into_iter()
         .map(|(tab, icon, label_key)| {

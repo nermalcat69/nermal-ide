@@ -1,5 +1,9 @@
 /target
 /dist
+# The vendored crate is a separate nested Cargo workspace (see its own
+# Cargo.toml) with its own build output.
+/vendor/gpui-component/target
+/vendor/gpui-component/Cargo.lock
 .DS_Store
 
 # Local dev-tool state — kept out of the repo but retained on disk.

@@ -62,6 +62,84 @@ impl AsyncWrite for Transport {
     }
 }
 
+/// Bytes moved over one SSH connection, for the GUI's Network panel — every
+/// pane and every port forward on a workspace multiplexes over the same
+/// [`Transport`], so counting here at the one place all of it already passes
+/// through is cheaper and more accurate than adding it up per channel.
+#[derive(Default)]
+pub struct NetCounters {
+    rx: std::sync::atomic::AtomicU64,
+    tx: std::sync::atomic::AtomicU64,
+}
+
+impl NetCounters {
+    pub fn rx(&self) -> u64 {
+        self.rx.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub fn tx(&self) -> u64 {
+        self.tx.load(std::sync::atomic::Ordering::Relaxed)
+    }
+}
+
+/// Wraps a [`Transport`] to tally bytes in `counters` as they cross it —
+/// applied once, at `client::connect`, rather than to every channel a
+/// connection opens afterward.
+pub struct CountingTransport {
+    inner: Transport,
+    counters: Arc<NetCounters>,
+}
+
+impl CountingTransport {
+    pub fn new(inner: Transport, counters: Arc<NetCounters>) -> Self {
+        Self { inner, counters }
+    }
+}
+
+impl AsyncRead for CountingTransport {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        let this = self.get_mut();
+        let before = buf.filled().len();
+        let result = Pin::new(&mut this.inner).poll_read(cx, buf);
+        if result.is_ready() {
+            let read = buf.filled().len() - before;
+            this.counters
+                .rx
+                .fetch_add(read as u64, std::sync::atomic::Ordering::Relaxed);
+        }
+        result
+    }
+}
+
+impl AsyncWrite for CountingTransport {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        let this = self.get_mut();
+        let result = Pin::new(&mut this.inner).poll_write(cx, buf);
+        if let Poll::Ready(Ok(written)) = &result {
+            this.counters
+                .tx
+                .fetch_add(*written as u64, std::sync::atomic::Ordering::Relaxed);
+        }
+        result
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.get_mut().inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.get_mut().inner).poll_shutdown(cx)
+    }
+}
+
 pub struct ProcessStream {
     _child: tokio::process::Child,
     stdin: Option<tokio::process::ChildStdin>,

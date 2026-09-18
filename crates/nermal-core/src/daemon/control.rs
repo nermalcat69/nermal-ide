@@ -337,6 +337,13 @@ pub struct RouteInfo {
     pub key: String,
     pub kind: String,
     pub connected: bool,
+    /// Bytes moved over this route's transport since the connection was
+    /// dialled. `0` for a route this daemon has no live or cached connection
+    /// for, rather than an error — see `SshManager::routes`.
+    #[serde(default)]
+    pub rx_bytes: u64,
+    #[serde(default)]
+    pub tx_bytes: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -1614,6 +1621,8 @@ mod tests {
                 key: "me@build-box:22".into(),
                 kind: "ssh".into(),
                 connected: true,
+                rx_bytes: 0,
+                tx_bytes: 0,
             }])),
             ControlReply::Ok(ReplyOk::Status(ServerStatus {
                 pid: 4242,

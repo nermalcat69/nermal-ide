@@ -8,6 +8,7 @@ use gpui_component::{
 use std::path::PathBuf;
 
 use crate::core::config::{Config, RightPanelTab};
+use crate::daemon::control::{ControlRequest, ReplyOk, RouteInfo};
 use crate::daemon::protocol::{ManagedForward, PaneProcs, PortProbe};
 use crate::ui::app::{
     CONTENT_INSET, NermalApp, TILE_GLYPH_SM, TILE_GLYPH_XS, TILE_SIZE_SM, TILE_SIZE_XS,
@@ -235,6 +236,16 @@ pub(crate) struct RightPanelState {
     /// `sysinfo` was not asked to do.
     pub(crate) usage: Option<WorkspaceUsage>,
     pub(crate) usage_watching: bool,
+    /// The Network tab's rows, and whether its refresh loop is already
+    /// running — same lazy-start shape as `usage_watching`, since this also
+    /// costs a control round trip nobody should pay for a tab they never
+    /// open.
+    pub(crate) network_watching: bool,
+    pub(crate) network_rows: Vec<NetworkRoute>,
+    /// The previous sample and when it was taken, kept only long enough to
+    /// turn the next one into a rate — `network_rows` is what the panel
+    /// actually draws.
+    network_prev: Option<(Vec<RouteInfo>, std::time::Instant)>,
     /// The lines-changed-per-day heatmap's cache, keyed by which repository
     /// it was built for so a tab switch to a different repo re-fetches
     /// instead of showing the last one's graph under the new one's name.
@@ -364,6 +375,67 @@ fn format_memory(bytes: u64) -> String {
     } else {
         format!("{:.1} GB", mb / 1024.)
     }
+}
+
+/// How often the Network tab re-asks the local daemon for its routes, and so
+/// the shortest window a throughput number can react in — the same shape
+/// `USAGE_POLL` follows for `sysinfo`, for the same reason: a rate needs two
+/// samples a moment apart, not a per-frame refresh nobody's eye can use.
+const NETWORK_POLL: std::time::Duration = std::time::Duration::from_millis(2000);
+
+/// One SSH connection's row in the Network tab: where it goes, how much has
+/// crossed it in total, and how fast right now.
+#[derive(Clone)]
+pub(crate) struct NetworkRoute {
+    pub(crate) key: String,
+    pub(crate) connected: bool,
+    pub(crate) rx_bytes: u64,
+    pub(crate) tx_bytes: u64,
+    /// Bytes per second since the previous sample — `None` on a route's first
+    /// appearance, when there is nothing yet to measure it against.
+    pub(crate) rx_rate: Option<f64>,
+    pub(crate) tx_rate: Option<f64>,
+}
+
+/// Turns two samples of `SshManager::routes()` into rows with a rate, by
+/// matching each current route back to its last sample by key. A route with
+/// no match — new since last tick, or the daemon just restarted — gets no
+/// rate rather than a spike computed against nothing.
+fn network_rows_from_samples(
+    current: &[RouteInfo],
+    previous: Option<&(Vec<RouteInfo>, std::time::Instant)>,
+    now: std::time::Instant,
+) -> Vec<NetworkRoute> {
+    let elapsed = previous.map(|(_, at)| (now - *at).as_secs_f64());
+    current
+        .iter()
+        .map(|route| {
+            let prior = previous.and_then(|(routes, _)| routes.iter().find(|p| p.key == route.key));
+            let rate = |now_bytes: u64, then_bytes: u64| -> Option<f64> {
+                let elapsed = elapsed.filter(|s| *s > 0.);
+                match (prior, elapsed) {
+                    (Some(_), Some(secs)) if now_bytes >= then_bytes => {
+                        Some((now_bytes - then_bytes) as f64 / secs)
+                    }
+                    _ => None,
+                }
+            };
+            NetworkRoute {
+                key: route.key.clone(),
+                connected: route.connected,
+                rx_bytes: route.rx_bytes,
+                tx_bytes: route.tx_bytes,
+                rx_rate: rate(route.rx_bytes, prior.map_or(0, |p| p.rx_bytes)),
+                tx_rate: rate(route.tx_bytes, prior.map_or(0, |p| p.tx_bytes)),
+            }
+        })
+        .collect()
+}
+
+/// "30 MB/s", the same ladder `format_memory` uses for a total, with the
+/// per-second suffix a rate needs to read as one rather than the other.
+fn format_rate(bytes_per_sec: f64) -> String {
+    format!("{}/s", format_memory(bytes_per_sec.round() as u64))
 }
 
 /// One `System`, kept for the process's whole life rather than rebuilt per
@@ -699,6 +771,7 @@ impl NermalApp {
             RightPanelTab::Agents => self.render_panel_agents(window, cx),
             RightPanelTab::Search => self.render_panel_search(window, cx),
             RightPanelTab::Usage => self.render_panel_usage(window, cx),
+            RightPanelTab::Network => self.render_panel_network(window, cx),
         };
         let (backing, handle) = self.right_panel_resize(cx);
 
@@ -2278,6 +2351,137 @@ impl NermalApp {
             .into_any_element()
     }
 
+    /// Where this workspace's own SSH connections go, and how much has moved
+    /// over each — starts its own refresh loop the first time this tab is
+    /// drawn, the same lazy-start shape `render_panel_usage` uses, so a
+    /// window that never opens it never asks the daemon for routes at all.
+    fn render_panel_network(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        let title = self.panel_title(t(L10nKey::PanelNetworkTitle), None, None, window, cx);
+        if !self.right_panel.network_watching {
+            self.right_panel.network_watching = true;
+            cx.spawn_in(window, async move |this, cx| {
+                loop {
+                    let alive = this
+                        .update(cx, |this, _cx| {
+                            this.right_panel_visible
+                                && this.right_panel_tab == RightPanelTab::Network
+                        })
+                        .unwrap_or(false);
+                    if !alive {
+                        let _ = this.update(cx, |this, _| {
+                            this.right_panel.network_watching = false;
+                        });
+                        return;
+                    }
+                    let client = this
+                        .update(cx, |_, cx| crate::ui::local_link::LocalLink::client(cx))
+                        .ok()
+                        .flatten();
+                    if let Some(client) = client {
+                        let reply = cx
+                            .background_spawn(
+                                async move { client.call(ControlRequest::Routes).ok() },
+                            )
+                            .await;
+                        let _ = this.update(cx, |this, cx| {
+                            if let Some(ReplyOk::Routes(list)) = reply {
+                                let now = std::time::Instant::now();
+                                this.right_panel.network_rows = network_rows_from_samples(
+                                    &list,
+                                    this.right_panel.network_prev.as_ref(),
+                                    now,
+                                );
+                                this.right_panel.network_prev = Some((list, now));
+                            }
+                            cx.notify();
+                        });
+                    }
+                    cx.background_executor().timer(NETWORK_POLL).await;
+                }
+            })
+            .detach();
+        }
+        let body = if self.right_panel.network_rows.is_empty() {
+            self.panel_empty(t(L10nKey::PanelNetworkEmpty), None, cx)
+        } else {
+            let mut col = v_flex()
+                .px(px(CONTENT_INSET - ROW_INSET))
+                .py(px(4.))
+                .gap(px(10.));
+            for route in self.right_panel.network_rows.clone() {
+                col = col.child(self.network_route_row(&route, cx));
+            }
+            col.into_any_element()
+        };
+        self.panel_scroll(body, title)
+    }
+
+    fn network_route_row(&self, route: &NetworkRoute, cx: &mut Context<Self>) -> AnyElement {
+        let rate = |label: &str, rate: Option<f64>, cx: &mut Context<Self>| {
+            self.usage_stat(
+                label,
+                rate.map(format_rate)
+                    .unwrap_or_else(|| t(L10nKey::PanelNetworkNoRate).to_string()),
+                cx,
+            )
+        };
+        v_flex()
+            .gap(px(4.))
+            .pb(px(6.))
+            .child(
+                h_flex()
+                    .items_baseline()
+                    .justify_between()
+                    .px(px(ROW_INSET))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .text_size(rems(TEXT))
+                            .font_family(cx.theme().mono_font_family.clone())
+                            .text_color(cx.theme().foreground)
+                            .child(route.key.clone()),
+                    )
+                    .child(
+                        div()
+                            .flex_none()
+                            .text_size(rems(META))
+                            .text_color(if route.connected {
+                                cx.theme().success
+                            } else {
+                                cx.theme().danger
+                            })
+                            .child(if route.connected {
+                                t(L10nKey::PanelNetworkConnected)
+                            } else {
+                                t(L10nKey::PanelNetworkDisconnected)
+                            }),
+                    ),
+            )
+            .child(self.usage_stat(
+                &t(L10nKey::PanelNetworkReceived),
+                format_memory(route.rx_bytes),
+                cx,
+            ))
+            .child(self.usage_stat(
+                &t(L10nKey::PanelNetworkSent),
+                format_memory(route.tx_bytes),
+                cx,
+            ))
+            .child(rate(
+                &t(L10nKey::PanelNetworkDownloadSpeed),
+                route.rx_rate,
+                cx,
+            ))
+            .child(rate(
+                &t(L10nKey::PanelNetworkUploadSpeed),
+                route.tx_rate,
+                cx,
+            ))
+            .into_any_element()
+    }
+
     /// One row per terminal pane, across every tab of this workspace, that is
     /// running a CLI coding agent — the right sidebar's answer to "what is
     /// working right now", where the sidebar's own badges only ever say that
@@ -2996,6 +3200,71 @@ pub fn reveal_label() -> &'static str {
 /// (#580) — and against nothing at all while the host has not said.
 fn compact_path(path: &std::path::Path, home: Option<&std::path::Path>) -> String {
     crate::ui::path_display::abbreviate_home(&path.to_string_lossy(), home).into_owned()
+}
+
+#[cfg(test)]
+mod network_tests {
+    use super::{RouteInfo, network_rows_from_samples};
+    use std::time::{Duration, Instant};
+
+    fn route(key: &str, rx: u64, tx: u64) -> RouteInfo {
+        RouteInfo {
+            key: key.to_string(),
+            kind: "ssh".to_string(),
+            connected: true,
+            rx_bytes: rx,
+            tx_bytes: tx,
+        }
+    }
+
+    /// The very first sample has nothing to measure a rate against — it
+    /// should show totals, not a spike computed against zero.
+    #[test]
+    fn a_routes_first_appearance_carries_no_rate() {
+        let now = Instant::now();
+        let rows = network_rows_from_samples(&[route("me@host:22", 1000, 500)], None, now);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].rx_bytes, 1000);
+        assert_eq!(rows[0].tx_bytes, 500);
+        assert!(rows[0].rx_rate.is_none());
+        assert!(rows[0].tx_rate.is_none());
+    }
+
+    /// Two samples a known distance apart turn into bytes-per-second, keyed
+    /// off the same route rather than positional order.
+    #[test]
+    fn a_second_sample_divides_the_delta_by_elapsed_time() {
+        let then = Instant::now();
+        let prev = (vec![route("me@host:22", 1000, 500)], then);
+        let now = then + Duration::from_secs(2);
+        let rows = network_rows_from_samples(&[route("me@host:22", 5000, 1500)], Some(&prev), now);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            rows[0].rx_rate,
+            Some(2000.0),
+            "4000 bytes over 2s is 2000 B/s"
+        );
+        assert_eq!(
+            rows[0].tx_rate,
+            Some(500.0),
+            "1000 bytes over 2s is 500 B/s"
+        );
+    }
+
+    /// A route with no match in the previous sample — new since last tick, or
+    /// the daemon just restarted the connection under the same key with fresh
+    /// counters — gets no rate rather than one computed against a byte count
+    /// from a different connection entirely.
+    #[test]
+    fn an_unmatched_route_gets_no_rate() {
+        let then = Instant::now();
+        let prev = (vec![route("me@old-box:22", 1000, 500)], then);
+        let now = then + Duration::from_secs(1);
+        let rows = network_rows_from_samples(&[route("me@new-box:22", 200, 100)], Some(&prev), now);
+        assert_eq!(rows.len(), 1);
+        assert!(rows[0].rx_rate.is_none());
+        assert!(rows[0].tx_rate.is_none());
+    }
 }
 
 #[cfg(test)]

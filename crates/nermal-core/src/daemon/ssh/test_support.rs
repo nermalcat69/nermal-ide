@@ -162,7 +162,12 @@ impl FakeSshd {
             .await
             .expect("auth round trip");
         assert!(auth.success(), "the fake accepts everyone");
-        let conn = SshConnection::new(handle, ConnectionKey::from_spec(&spec), remote_forwards);
+        let conn = SshConnection::new(
+            handle,
+            ConnectionKey::from_spec(&spec),
+            remote_forwards,
+            Arc::new(super::connect::NetCounters::default()),
+        );
         FakeSshd { conn, counts }
     }
 

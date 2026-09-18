@@ -452,20 +452,34 @@ impl SshManager {
         let mut routes: Vec<_> = conns
             .iter()
             .map(|(key, slot)| {
-                let connected = match slot.try_lock() {
-                    Ok(weak) => weak.upgrade().is_some_and(|conn| conn.is_alive()),
+                // Locked once and read from the same upgrade for both fields —
+                // two separate `try_lock`s could see the slot torn down between
+                // them and report a byte count for a connection just marked
+                // disconnected.
+                let (connected, rx_bytes, tx_bytes) = match slot.try_lock() {
+                    Ok(weak) => match weak.upgrade() {
+                        Some(conn) => (
+                            conn.is_alive(),
+                            conn.net_counters().rx(),
+                            conn.net_counters().tx(),
+                        ),
+                        None => (false, 0, 0),
+                    },
                     // The slot is held by whoever is opening or using this link
                     // right now. Busy is not down — and callers act on this:
                     // the CLI's `-m <machine>` refuses to route over a link it
                     // is told is down, so guessing false here fails a perfectly
                     // live connection the moment it gets used. SshConnection::
                     // is_alive resolves its own lock contention the same way.
-                    Err(_) => true,
+                    // The byte counts are just not available this tick.
+                    Err(_) => (true, 0, 0),
                 };
                 crate::daemon::control::RouteInfo {
                     key: key.as_str().to_string(),
                     kind: "ssh".to_string(),
                     connected,
+                    rx_bytes,
+                    tx_bytes,
                 }
             })
             .collect();
@@ -568,8 +582,11 @@ impl SshManager {
                 broker: broker.clone(),
                 remote_forwards: remote_forwards.clone(),
             };
+            let net_counters = Arc::new(connect::NetCounters::default());
+            let counters_for_transport = net_counters.clone();
             let handshake = async {
                 let transport = connect::build_transport(spec, jump).await?;
+                let transport = connect::CountingTransport::new(transport, counters_for_transport);
                 let config = connect::build_config(spec);
                 russh::client::connect_stream(config, transport, handler)
                     .await
@@ -597,7 +614,7 @@ impl SshManager {
                 .await
                 .map_err(anyhow::Error::msg)?;
 
-            let conn = SshConnection::new(handle, key, remote_forwards);
+            let conn = SshConnection::new(handle, key, remote_forwards, net_counters);
             if let Some(guard) = guard.as_mut() {
                 **guard = Arc::downgrade(&conn);
             }

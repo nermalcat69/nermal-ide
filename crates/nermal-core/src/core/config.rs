@@ -1134,6 +1134,9 @@ pub enum RightPanelTab {
     /// CPU and memory used by the local daemon and everything it has spawned
     /// for this workspace.
     Usage,
+    /// This workspace's live SSH connections: destination, bytes moved, and
+    /// current throughput.
+    Network,
 }
 
 /// What opens when a file link in the grid is clicked.

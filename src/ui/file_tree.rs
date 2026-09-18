@@ -845,6 +845,18 @@ impl NermalApp {
         self.file_tree_begin_edit(TreeEditKind::NewFile, &root, true, window, cx);
     }
 
+    /// The sidebar's own "+" button offers this beside New File — same root,
+    /// same inline-edit flow, `NewFolder` instead of `NewFile`.
+    pub(crate) fn new_folder_from_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(root) = self.tab_code().and_then(|c| c.roots.first()).cloned() else {
+            return;
+        };
+        if !self.file_tree_on_screen(cx) {
+            self.reveal_file_tree_sidebar(cx);
+        }
+        self.file_tree_begin_edit(TreeEditKind::NewFolder, &root, true, window, cx);
+    }
+
     fn file_tree_sync_watch(&mut self, host: SharedHost, cx: &mut Context<Self>) {
         let union: HashSet<PathBuf> = self
             .code
@@ -1866,7 +1878,12 @@ impl NermalApp {
 
         let label: AnyElement = if renaming {
             let input = self.file_tree.editing.as_ref().unwrap().input().clone();
-            Input::new(&input).xsmall().into_any_element()
+            // `.xsmall()` boxes the field at 20px with 12px text — visibly
+            // cramped next to the 14px `text_sm()` label every other row in
+            // the tree draws. `.small()` matches that text size and gives the
+            // box the few extra pixels a normal-sized glyph's ascenders and
+            // descenders need to stop clipping against the edges.
+            Input::new(&input).small().into_any_element()
         } else {
             div()
                 .flex_1()
@@ -1992,7 +2009,10 @@ impl NermalApp {
                         .pl(px(ROW_INSET + (row.depth + 1) as f32 * INDENT))
                         .pr(px(ROW_INSET))
                         .py_0p5()
-                        .child(Input::new(&input).xsmall())
+                        // See the rename box's own comment: `.small()` matches
+                        // the row label's text size instead of clipping a
+                        // typed name at 20px/12px.
+                        .child(Input::new(&input).small())
                         .into_any_element(),
                 );
             }

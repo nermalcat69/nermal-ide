@@ -5,7 +5,7 @@ use gpui::{
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{Input, InputEvent};
-use gpui_component::menu::{ContextMenu, ContextMenuExt as _, PopupMenuItem};
+use gpui_component::menu::{ContextMenu, ContextMenuExt as _, DropdownMenu as _, PopupMenuItem};
 use gpui_component::{ActiveTheme as _, Icon, IconName, Sizable as _, h_flex, v_flex};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -21,7 +21,7 @@ use crate::ui::i18n::{L10nKey, t, t_fmt};
 use crate::ui::reorder::{self, Reorder, Surface};
 use crate::ui::right_panel::RESIZE_HANDLE_WIDTH;
 use crate::ui::tab_strip::{
-    DragTab, REORDER_SLIDE_MS, abbreviate_home, elide_keep_edges, elide_label,
+    DragTab, REORDER_SLIDE_MS, abbreviate_home, chrome_tile, elide_keep_edges, elide_label,
     elide_path_keep_tail, measure_text, strip_host_prefix,
 };
 
@@ -1458,36 +1458,75 @@ impl NermalApp {
             .child(self.workspace_head(cx));
 
         let chip_inset = crate::ui::app::CONTENT_INSET - 7. + 4.;
-        let top_bar = h_flex()
-            .flex_shrink_0()
-            .items_center()
-            .gap(px(6.))
-            .h(px(44.))
-            .pl(px(chip_inset))
-            .pr(px(crate::ui::app::CONTENT_INSET))
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .size(px(Self::AVATAR_PX))
-                    .child(
-                        Icon::new(IconName::Search)
-                            .size(px(14.))
-                            .text_color(cx.theme().muted_foreground),
-                    ),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    // Filters the file explorer now, not the tab list: the
-                    // list that box used to search moved to the right
-                    // panel's Instances tab, and this is the sidebar's only
-                    // search box left.
-                    .child(Input::new(&self.file_search).appearance(false).pl_0()),
-            );
+        let top_bar =
+            h_flex()
+                .flex_shrink_0()
+                .items_center()
+                .gap(px(6.))
+                .h(px(44.))
+                .pl(px(chip_inset))
+                .pr(px(crate::ui::app::CONTENT_INSET))
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .size(px(Self::AVATAR_PX))
+                        .child(
+                            Icon::new(IconName::Search)
+                                .size(px(14.))
+                                .text_color(cx.theme().muted_foreground),
+                        ),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        // Filters the file explorer now, not the tab list: the
+                        // list that box used to search moved to the right
+                        // panel's Instances tab, and this is the sidebar's only
+                        // search box left.
+                        .child(Input::new(&self.file_search).appearance(false).pl_0()),
+                )
+                .child(
+                    // New File / New Folder without a right-click first — the
+                    // context menu on the tree root already offers both, but
+                    // nothing above the tree itself did.
+                    chrome_tile(
+                        Button::new("sidebar-new-entry").icon(Icon::new(IconName::Plus)),
+                        false,
+                        cx,
+                    )
+                    .rounded_lg()
+                    .tooltip(t(L10nKey::FileTreeNewEntryTooltip))
+                    .dropdown_menu({
+                        let app = cx.entity().downgrade();
+                        move |menu, _window, _cx| {
+                            let mut menu = menu.min_w(px(160.));
+                            let new_file = app.clone();
+                            let new_folder = app.clone();
+                            menu = menu
+                                .item(
+                                    PopupMenuItem::new(t(L10nKey::FileTreeContextNewFile))
+                                        .on_click(move |_, window, cx| {
+                                            let _ = new_file.update(cx, |this, cx| {
+                                                this.new_file_from_menu(window, cx)
+                                            });
+                                        }),
+                                )
+                                .item(
+                                    PopupMenuItem::new(t(L10nKey::FileTreeContextNewFolder))
+                                        .on_click(move |_, window, cx| {
+                                            let _ = new_folder.update(cx, |this, cx| {
+                                                this.new_folder_from_menu(window, cx)
+                                            });
+                                        }),
+                                );
+                            menu
+                        }
+                    }),
+                );
 
         let container: Rc<Cell<Option<Bounds<Pixels>>>> = Rc::new(Cell::new(None));
         // Read while there is still a `cx` to read it from: the drag handler

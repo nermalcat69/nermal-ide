@@ -234,6 +234,9 @@ pub struct SshConnection {
     /// What this connection's server probe proved, once it has. See
     /// [`SshConnection::proved_server`].
     proved_server: Mutex<Option<ProvedServer>>,
+    /// Bytes moved over this connection's transport, read by `routes()` for
+    /// the GUI's Network panel.
+    net_counters: Arc<super::connect::NetCounters>,
 }
 
 impl SshConnection {
@@ -241,6 +244,7 @@ impl SshConnection {
         handle: russh::client::Handle<super::handler::ClientHandler>,
         key: ConnectionKey,
         remote_forwards: RemoteForwardTable,
+        net_counters: Arc<super::connect::NetCounters>,
     ) -> Arc<Self> {
         Arc::new(Self {
             handle: tokio::sync::Mutex::new(handle),
@@ -249,7 +253,12 @@ impl SshConnection {
             alive: AtomicBool::new(true),
             remote_entry: tokio::sync::Mutex::new(None),
             proved_server: Mutex::new(None),
+            net_counters,
         })
+    }
+
+    pub fn net_counters(&self) -> &Arc<super::connect::NetCounters> {
+        &self.net_counters
     }
 
     #[allow(dead_code)]

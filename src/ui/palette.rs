@@ -167,6 +167,7 @@ impl CommandKind {
             ShowRightPanel(RightPanelTab::Agents) => "right-panel-agents",
             ShowRightPanel(RightPanelTab::Search) => "right-panel-search",
             ShowRightPanel(RightPanelTab::Usage) => "right-panel-usage",
+            ShowRightPanel(RightPanelTab::Network) => "right-panel-network",
             ClearTerminal => "clear-scrollback",
             FindInTerminal => "find",
             FindNext => "find-next",
@@ -277,6 +278,7 @@ impl CommandKind {
                 RightPanelTab::Agents => "ShowRightPanelAgents",
                 RightPanelTab::Search => "ShowRightPanelSearch",
                 RightPanelTab::Usage => "ShowRightPanelUsage",
+                RightPanelTab::Network => "ShowRightPanelNetwork",
             },
             ClearTerminal => "ClearScrollback",
             FindInTerminal => "FindInTerminal",
@@ -538,6 +540,10 @@ impl Command {
             Command::localized(
                 L10nKey::CmdRightPanelUsage,
                 ShowRightPanel(RightPanelTab::Usage),
+            ),
+            Command::localized(
+                L10nKey::CmdRightPanelNetwork,
+                ShowRightPanel(RightPanelTab::Network),
             ),
             Command::localized(L10nKey::CmdChangeTheme, OpenThemePicker),
             Command::localized(L10nKey::CmdResetFontSize, ResetFontSize),
