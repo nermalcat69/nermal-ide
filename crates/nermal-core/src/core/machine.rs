@@ -124,6 +124,11 @@ pub struct Workspace {
     pub name: Option<String>,
     #[serde(default)]
     pub last_active: u64,
+    /// The project folder this workspace is attached to. It belongs to the
+    /// workspace, not to any terminal in it: closing every pane leaves it
+    /// alone, so it is what the file tree roots on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder: Option<std::path::PathBuf>,
     #[serde(default)]
     pub tabs: Vec<Tab>,
     #[serde(default)]
@@ -142,6 +147,7 @@ impl Default for Workspace {
             id: WorkspaceId::new(),
             name: None,
             last_active: unix_now(),
+            folder: None,
             tabs: Vec::new(),
             active_tab: None,
             attachment: None,
@@ -404,6 +410,9 @@ pub enum LayoutDelta {
     WorkspaceRenamed {
         name: Option<String>,
     },
+    WorkspaceFolderSet {
+        folder: Option<std::path::PathBuf>,
+    },
     WorkspaceDeleted,
     WorkspaceTouched {
         last_active: u64,
@@ -596,6 +605,19 @@ impl MachineStore {
             let ws = find_workspace(m, id)?;
             ws.name = name.clone();
             Ok(((), vec![(id, LayoutDelta::WorkspaceRenamed { name })]))
+        })
+    }
+
+    pub fn workspace_set_folder(
+        &self,
+        id: WorkspaceId,
+        folder: Option<std::path::PathBuf>,
+        origin: Option<SubscriberId>,
+    ) -> io::Result<()> {
+        self.mutate(origin, |m| {
+            let ws = find_workspace(m, id)?;
+            ws.folder = folder.clone();
+            Ok(((), vec![(id, LayoutDelta::WorkspaceFolderSet { folder })]))
         })
     }
 
@@ -1967,6 +1989,26 @@ mod tests {
             heard.iter().all(|(key, _)| key == &ws.id.to_string()),
             "every delta names the workspace it is about"
         );
+    }
+
+    #[test]
+    fn a_workspace_folder_is_stored_broadcast_and_survives_a_restart() {
+        let (store, dir) = store();
+        let ws = store.workspace_create(None, None, None).unwrap();
+        let (_sub, heard) = recorded(&store);
+
+        store
+            .workspace_set_folder(ws.id, Some("/work/api".into()), None)
+            .unwrap();
+        let restarted = MachineStore::open(dir.path().join(MACHINE_FILE));
+        assert_eq!(
+            restarted.workspace(ws.id).unwrap().folder,
+            Some("/work/api".into())
+        );
+        assert!(matches!(
+            &heard.lock().unwrap()[0].1,
+            LayoutDelta::WorkspaceFolderSet { folder: Some(f) } if f.ends_with("api")
+        ));
     }
 
     #[test]

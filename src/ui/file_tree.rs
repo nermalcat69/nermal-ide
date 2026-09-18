@@ -653,7 +653,7 @@ impl FileTreeState {
             })
     }
 
-    fn invalidate_all(&mut self) {
+    pub(crate) fn invalidate_all(&mut self) {
         self.stale
             .extend(self.children.keys().map(|(host, dir)| (host, dir.clone())));
         self.loads.invalidate_all();
@@ -743,6 +743,13 @@ impl NermalApp {
         let Some(host) = self.active_host(cx) else {
             return;
         };
+        // The folder is the workspace's, not the active pane's: once a pane
+        // has named it, switching tabs, `cd`, or closing every terminal must
+        // not move the tree. Only "Open Folder" changes it after that.
+        if self.tab_code().is_some_and(|c| c.rooted) {
+            self.file_tree_sync_watch(host, cx);
+            return;
+        }
         let leaves = match self.tabs.get(self.active) {
             Some(tab) => tab.pane.terminals(),
             None => Vec::new(),
@@ -775,6 +782,9 @@ impl NermalApp {
         if !resolved {
             return;
         }
+        // $HOME is a placeholder until a pane names a real folder, so it
+        // must not lock the workspace onto it.
+        let rooted = !roots.is_empty();
         if roots.is_empty()
             && id.is_local()
             && let Some(home) = std::env::var_os("HOME")
@@ -785,6 +795,7 @@ impl NermalApp {
         let Some(code) = self.tab_code_mut_or_init() else {
             return;
         };
+        code.rooted |= rooted;
         for pinned in &code.pinned_roots {
             if !roots.contains(pinned) {
                 roots.push(pinned.clone());
@@ -818,6 +829,16 @@ impl NermalApp {
                 let Some(code) = this.tab_code_mut_or_init() else {
                     return;
                 };
+                // Straight into `roots` too: once the workspace is rooted the
+                // refresh no longer re-folds `pinned_roots` back in. A
+                // workspace with no folder yet takes this one as its own.
+                if !code.rooted {
+                    code.roots.clear();
+                    code.rooted = true;
+                }
+                if !code.roots.contains(&path) {
+                    code.roots.push(path.clone());
+                }
                 if !code.pinned_roots.contains(&path) {
                     code.pinned_roots.push(path);
                 }
@@ -3480,18 +3501,9 @@ mod render_idle_gpui_tests {
             "clearing the root cache asked for the paint that re-resolves it"
         );
 
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
-        loop {
-            vcx.background_executor.run_until_parked();
-            if app.update_in(&mut vcx, |app, _, _| !app.file_tree.repo_roots.is_empty()) {
-                break;
-            }
-            assert!(
-                std::time::Instant::now() < deadline,
-                "the cleared root cache was never re-resolved"
-            );
-            std::thread::sleep(std::time::Duration::from_millis(20));
-        }
+        // The workspace is rooted by now, so the refresh no longer re-derives
+        // the folder from the pane: the cleared cache stays cleared and the
+        // tree must not move.
         settle(&app, &mut vcx, &root);
         assert_eq!(
             app.update_in(&mut vcx, |app, _, _| app
@@ -3499,7 +3511,27 @@ mod render_idle_gpui_tests {
                 .map(|c| c.roots.clone())
                 .unwrap_or_default()),
             vec![root.clone()],
-            "the tree is still rooted where it belongs"
+            "a moved repository root does not move the workspace folder"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[gpui::test]
+    fn closing_every_terminal_keeps_the_workspace_folder(cx: &mut TestAppContext) {
+        let _serial = serial();
+        let root = scratch("kill-terminals");
+        let (app, mut vcx, _pane) = files_panel_on(cx, &root);
+        app.update_in(&mut vcx, |app, window, cx| {
+            app.close_tab(0, window, cx);
+            app.file_tree_refresh_roots(window, cx);
+        });
+        assert_eq!(
+            app.update_in(&mut vcx, |app, _, _| app
+                .tab_code()
+                .map(|c| c.roots.clone())
+                .unwrap_or_default()),
+            vec![root.clone()],
+            "the folder belongs to the workspace, not to its terminals"
         );
         let _ = std::fs::remove_dir_all(&root);
     }

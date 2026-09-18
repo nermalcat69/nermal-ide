@@ -6,6 +6,7 @@ pub fn two_workspace_machine() -> Machine {
         id: WorkspaceId::new(),
         name: Some("api".into()),
         last_active: 0,
+        folder: None,
         tabs: vec![
             Tab {
                 id: TabId::new(),
@@ -32,6 +33,7 @@ pub fn two_workspace_machine() -> Machine {
         id: WorkspaceId::new(),
         name: Some("web".into()),
         last_active: 0,
+        folder: None,
         tabs: vec![Tab {
             id: TabId::new(),
             name: None,

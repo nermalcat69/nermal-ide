@@ -7905,12 +7905,13 @@ impl NermalApp {
     /// workspace look like a half-drawn window instead of a blank start
     /// screen.
     pub(crate) fn showing_home(&self) -> bool {
-        self.tabs.is_empty() && self.document_front().is_none()
+        self.tabs.is_empty() && self.document_front().is_none() && !self.has_workspace_folder()
     }
 }
 
 impl Render for NermalApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.sync_workspace_folder(cx);
         #[cfg(test)]
         render_probe::record();
         let prof = crate::ui::perf::enabled().then(std::time::Instant::now);
@@ -7994,7 +7995,7 @@ impl Render for NermalApp {
             // must not also throw the editor and the right panel out, so the
             // terminal column collapses to an empty placeholder instead of
             // the whole window jumping to the dashboard.
-            None if self.document_front().is_some() => self
+            None if self.document_front().is_some() || self.has_workspace_folder() => self
                 .panel_empty(
                     t(L10nKey::TerminalPanelEmpty),
                     Some(t(L10nKey::TerminalPanelEmptyHint)),

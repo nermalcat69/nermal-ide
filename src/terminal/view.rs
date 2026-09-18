@@ -336,6 +336,12 @@ pub struct TerminalView {
     relink_inflight: bool,
     pub marked_text: String,
     last_mouse_cell: Option<(usize, usize)>,
+    /// Bit per button (left/middle/right) this pane reported as pressed. The
+    /// window-wide mouse-up and drag handlers fire for clicks anywhere, with
+    /// the position clamped into the grid; without this a click in the
+    /// sidebar reaches the app as a release on the row it lines up with, and
+    /// a TUI menu (a Claude question, say) takes that as a click on an answer.
+    mouse_held: u8,
     last_hover_cell: Option<(usize, usize)>,
     link_modifier_down: bool,
     /// What this pane's host has said about paths printed in it, for panes
@@ -1554,6 +1560,7 @@ impl TerminalView {
             relink_inflight: false,
             marked_text: String::new(),
             last_mouse_cell: None,
+            mouse_held: 0,
             report_mouse,
             last_hover_cell: None,
             link_modifier_down: false,
@@ -3026,6 +3033,7 @@ impl TerminalView {
             _ => return,
         };
         self.last_mouse_cell = Some((col, row));
+        self.mouse_held |= 1 << base;
         self.write_mouse(base, mods, col, row, true);
     }
 
@@ -3036,11 +3044,21 @@ impl TerminalView {
             MouseButton::Right => 2,
             _ => return,
         };
+        if self.mouse_held & (1 << base) == 0 {
+            return;
+        }
+        self.mouse_held &= !(1 << base);
         self.write_mouse(base, mods, col, row, false);
     }
 
     pub fn mouse_drag(&mut self, button: MouseButton, col: usize, row: usize, mods: &Modifiers) {
-        if self.last_mouse_cell == Some((col, row)) {
+        let held = match button {
+            MouseButton::Left => 0,
+            MouseButton::Middle => 1,
+            MouseButton::Right => 2,
+            _ => return,
+        };
+        if self.mouse_held & (1 << held) == 0 || self.last_mouse_cell == Some((col, row)) {
             return;
         }
         let wants = self.report_mouse
@@ -10228,6 +10246,29 @@ mod gpui_tests {
                     view.terminal.term.lock().selection.is_none(),
                     "a selection left pointing at purged rows clamps onto the \
                      viewport and copies whatever text moved into them"
+                );
+            })
+            .unwrap();
+    }
+
+    /// The window-wide mouse-up/drag handlers fire for clicks anywhere, so the
+    /// pane must only report the buttons it saw go down — a click in the
+    /// sidebar is not a click on the TUI menu row it lines up with.
+    #[gpui::test]
+    fn a_click_that_never_started_in_the_pane_is_not_reported(cx: &mut TestAppContext) {
+        let (window, _daemon) = harness(cx);
+        window
+            .update(cx, |view, _, _| {
+                let mods = Modifiers::default();
+                view.mouse_drag(MouseButton::Left, 3, 4, &mods);
+                assert_eq!(view.last_mouse_cell, None, "a drag from outside is dropped");
+
+                view.mouse_press(MouseButton::Left, 3, 4, &mods);
+                assert_eq!(view.mouse_held, 1);
+                view.mouse_release(MouseButton::Left, 9, 9, &mods);
+                assert_eq!(
+                    view.mouse_held, 0,
+                    "the release that ends its press goes through"
                 );
             })
             .unwrap();

@@ -71,6 +71,13 @@ pub(crate) struct TabCode {
     pub(crate) files: Vec<OpenFile>,
     pub(crate) active: usize,
     pub(crate) roots: Vec<PathBuf>,
+    /// `roots` came from a real folder (a pane's, or "Open Folder"), so it is
+    /// the workspace's and stops following panes. See `file_tree_refresh_roots`.
+    pub(crate) rooted: bool,
+    /// The folder the machine last said this workspace has, once applied
+    /// here — so a render does not re-apply it, and so a folder found from a
+    /// pane before the machine answered still gets written back.
+    pub(crate) synced_folder: Option<PathBuf>,
     /// Folders added by hand via "Open Folder…", kept apart from `roots`
     /// because [`crate::ui::app::NermalApp::file_tree_refresh_roots`]
     /// recomputes `roots` from scratch off the active pane's cwd every time a
@@ -88,6 +95,8 @@ impl TabCode {
             files: Vec::new(),
             active: 0,
             roots: Vec::new(),
+            rooted: false,
+            synced_folder: None,
             pinned_roots: Vec::new(),
             expanded: std::collections::HashSet::new(),
             selected: None,
@@ -348,6 +357,54 @@ impl NermalApp {
 
     pub(crate) fn tab_code_mut(&mut self) -> Option<&mut TabCode> {
         self.code.as_deref_mut()
+    }
+
+    /// The workspace's folder is known, so the window is a project even with
+    /// no terminal in it.
+    pub(crate) fn has_workspace_folder(&self) -> bool {
+        self.code.as_ref().is_some_and(|c| c.rooted)
+    }
+
+    /// Reconciles the window's folder with the one stored on the workspace:
+    /// the stored one wins (it is what survives a restart), and one found
+    /// from a pane is written back once the machine has answered.
+    pub(crate) fn sync_workspace_folder(&mut self, cx: &mut Context<Self>) {
+        let Some(stored) = crate::ui::tree_sync::workspace_folder(cx, self.workspace) else {
+            return;
+        };
+        match stored {
+            Some(folder) => {
+                if self
+                    .code
+                    .as_ref()
+                    .is_some_and(|c| c.synced_folder.as_ref() == Some(&folder))
+                {
+                    return;
+                }
+                let code = self.code.get_or_insert_with(|| Box::new(TabCode::new()));
+                code.roots = vec![folder.clone()];
+                for pinned in &code.pinned_roots {
+                    if !code.roots.contains(pinned) {
+                        code.roots.push(pinned.clone());
+                    }
+                }
+                code.rooted = true;
+                code.synced_folder = Some(folder);
+                self.file_tree.invalidate_all();
+                cx.notify();
+            }
+            None => {
+                let Some(code) = self.code.as_mut().filter(|c| c.rooted) else {
+                    return;
+                };
+                let Some(root) = code.roots.first().cloned() else {
+                    return;
+                };
+                if code.synced_folder.replace(root.clone()).is_none() {
+                    crate::ui::tree_sync::set_workspace_folder(cx, self.workspace, Some(root));
+                }
+            }
+        }
     }
 
     pub(crate) fn tab_code_mut_or_init(&mut self) -> Option<&mut TabCode> {

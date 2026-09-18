@@ -1281,6 +1281,33 @@ pub(crate) fn rename_workspace(cx: &mut App, client_ws: WorkspaceId, name: Optio
     });
 }
 
+/// What the machine says this workspace's folder is: `None` while it has not
+/// answered (or does not know the workspace), `Some(None)` once it has said
+/// there is no folder yet.
+pub(crate) fn workspace_folder(
+    cx: &App,
+    client_ws: WorkspaceId,
+) -> Option<Option<std::path::PathBuf>> {
+    let host = WorkspaceStore::host_of(cx, client_ws);
+    let id = tree_workspace_id(cx, client_ws);
+    let machine = crate::ui::machine_mirror::MachineMirrors::machine(cx, host)?;
+    let ws = machine.workspaces.iter().find(|w| w.id == id)?;
+    Some(ws.folder.clone())
+}
+
+pub(crate) fn set_workspace_folder(
+    cx: &mut App,
+    client_ws: WorkspaceId,
+    folder: Option<std::path::PathBuf>,
+) {
+    fire_workspace_op(cx, client_ws, move |ws| {
+        ControlRequest::WorkspaceSetFolder {
+            workspace: ws,
+            folder,
+        }
+    });
+}
+
 fn start_prime(cx: &mut App, client_ws: WorkspaceId) {
     let host = WorkspaceStore::host_of(cx, client_ws);
     let machine_ws = tree_workspace_id(cx, client_ws);
@@ -2492,6 +2519,7 @@ fn apply_to_mirror(mirror: &mut WsMirror, delta: &LayoutDelta) -> bool {
         // and is listed only so a new delta cannot join this arm by accident.
         LayoutDelta::WorkspaceCreated { .. }
         | LayoutDelta::WorkspaceRenamed { .. }
+        | LayoutDelta::WorkspaceFolderSet { .. }
         | LayoutDelta::WorkspaceTouched { .. }
         | LayoutDelta::WorkspaceDeleted
         | LayoutDelta::PaneFacts { .. } => true,
@@ -2636,6 +2664,7 @@ impl NermalApp {
         let applied = match delta {
             LayoutDelta::WorkspaceCreated { .. }
             | LayoutDelta::WorkspaceTouched { .. }
+            | LayoutDelta::WorkspaceFolderSet { .. }
             | LayoutDelta::WorkspaceRenamed { .. }
             | LayoutDelta::PaneFacts { .. } => true,
             // Unreachable: `on_layout_delta` hands a deletion to

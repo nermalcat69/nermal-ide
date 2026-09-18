@@ -712,6 +712,11 @@ fn run_request(
                 .workspace_rename(workspace, name, conn.machine_origin)?;
             (ReplyOk::Unit, Vec::new())
         }
+        ControlRequest::WorkspaceSetFolder { workspace, folder } => {
+            conn.machine()?
+                .workspace_set_folder(workspace, folder, conn.machine_origin)?;
+            (ReplyOk::Unit, Vec::new())
+        }
         ControlRequest::WorkspaceRemove { workspace } => {
             let store = conn.machine()?;
             let panes = {

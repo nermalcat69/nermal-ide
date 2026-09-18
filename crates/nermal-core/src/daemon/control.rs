@@ -246,6 +246,10 @@ pub enum ControlRequest {
         workspace: WorkspaceId,
         name: Option<String>,
     },
+    WorkspaceSetFolder {
+        workspace: WorkspaceId,
+        folder: Option<std::path::PathBuf>,
+    },
     WorkspaceRemove {
         workspace: WorkspaceId,
     },
@@ -388,6 +392,7 @@ impl ControlRequest {
             | WorkspaceTree { .. }
             | WorkspaceCreate { .. }
             | WorkspaceRename { .. }
+            | WorkspaceSetFolder { .. }
             | WorkspaceRemove { .. }
             | WorkspaceTouch { .. }
             | WorkspaceSetActiveTab { .. }

@@ -671,6 +671,36 @@ mod new_workspace_tests {
         );
     }
 
+    /// A workspace is its folder, not its terminals: once the machine says
+    /// which folder this workspace has, closing every terminal must leave the
+    /// project up (sidebar, tree) rather than dropping to the dashboard.
+    #[gpui::test]
+    fn a_workspace_with_a_folder_is_not_home_without_terminals(cx: &mut TestAppContext) {
+        use nermal_core::core::machine::{Machine, Workspace};
+        let (app, mut vcx) = harness(cx);
+        let ws = app.read_with(&vcx, |app, _| app.workspace);
+        let folder = std::path::PathBuf::from("/tmp/nermal-project");
+        app.update_in(&mut vcx, |app, _, cx| {
+            crate::ui::machine_mirror::MachineMirrors::install(
+                cx,
+                nermal_core::host::HostId::LOCAL,
+                Machine {
+                    workspaces: vec![Workspace {
+                        id: ws,
+                        folder: Some(folder.clone()),
+                        ..Workspace::default()
+                    }],
+                    panes: Vec::new(),
+                },
+            );
+            app.sync_workspace_folder(cx);
+        });
+        app.read_with(&vcx, |app, _| {
+            assert!(!app.showing_home(), "a folder keeps the project up");
+            assert_eq!(app.tab_code().map(|c| c.roots.clone()), Some(vec![folder]));
+        });
+    }
+
     /// `Cancel` on the Create row is what a folder picked by mistake, or a
     /// picker cancelled from the OS side after all, backs out of — leaving
     /// the row gone and nothing created.

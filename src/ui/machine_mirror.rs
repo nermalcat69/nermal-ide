@@ -227,6 +227,11 @@ impl MachineMirrors {
                     ws.name = name.clone();
                 }
             }
+            ControlRequest::WorkspaceSetFolder { workspace, folder } => {
+                if let Some(ws) = machine.workspaces.iter_mut().find(|w| w.id == *workspace) {
+                    ws.folder = folder.clone();
+                }
+            }
             ControlRequest::WorkspaceTouch { workspace } => {
                 if let Some(ws) = machine.workspaces.iter_mut().find(|w| w.id == *workspace) {
                     ws.last_active = touched;
@@ -269,6 +274,10 @@ fn apply(machine: &mut Machine, workspace: WorkspaceId, delta: &LayoutDelta) -> 
         | LayoutDelta::PaneFacts { .. } => unreachable!("handled above"),
         LayoutDelta::WorkspaceRenamed { name } => {
             ws.name = name.clone();
+            true
+        }
+        LayoutDelta::WorkspaceFolderSet { folder } => {
+            ws.folder = folder.clone();
             true
         }
         LayoutDelta::WorkspaceTouched { last_active } => {
