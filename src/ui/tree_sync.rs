@@ -2097,7 +2097,8 @@ fn pull_workspace(
     // A name the user typed beats a rolled one. This create and `start_prime`'s
     // race each other (see the `Err` arm below), so both have to offer it —
     // whichever wins, the workspace ends up called what was asked for.
-    let name = chosen.unwrap_or_else(|| nermal_core::core::codename::unique(|n| taken.contains(&n)));
+    let name =
+        chosen.unwrap_or_else(|| nermal_core::core::codename::unique(|n| taken.contains(&n)));
     match client.call(ControlRequest::WorkspaceCreate {
         name: Some(name),
         workspace: Some(machine_ws),

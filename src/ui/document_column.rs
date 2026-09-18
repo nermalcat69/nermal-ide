@@ -26,7 +26,7 @@ use std::rc::Rc;
 use crate::core::config::{
     Config, DOCUMENT_RATIO_MAX, DOCUMENT_RATIO_MIN, DOCUMENT_RATIO_STOPS, DocumentLayout,
 };
-use crate::ui::app::{DOCUMENT_MIN_W, OverlayTop, TERMINAL_MIN_W, NermalApp, document_column_px};
+use crate::ui::app::{DOCUMENT_MIN_W, NermalApp, OverlayTop, TERMINAL_MIN_W, document_column_px};
 use crate::ui::i18n::{L10nKey, t};
 use crate::ui::right_panel::RESIZE_HANDLE_WIDTH;
 

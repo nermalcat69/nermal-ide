@@ -168,7 +168,8 @@ impl SshManager {
                 broker.status(SshPhase::Failed {
                     reason: reason.clone(),
                 });
-                let line = format!("\r\n\x1b[31mnermal: SSH connection failed: {reason}\x1b[0m\r\n");
+                let line =
+                    format!("\r\n\x1b[31mnermal: SSH connection failed: {reason}\x1b[0m\r\n");
                 let _ = data_tx.send(line.into_bytes()).await;
             }
         });

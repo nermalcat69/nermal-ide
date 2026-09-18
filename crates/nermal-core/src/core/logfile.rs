@@ -168,7 +168,10 @@ mod tests {
         );
         let written = std::fs::read_to_string(&path).unwrap();
         assert!(written.contains("daemon"), "{written}");
-        assert!(written.contains("nermal_core::daemon::install"), "{written}");
+        assert!(
+            written.contains("nermal_core::daemon::install"),
+            "{written}"
+        );
         assert!(written.contains("installed nermal-server"), "{written}");
         assert!(written.contains("INFO"), "{written}");
         let _ = std::fs::remove_file(&path);

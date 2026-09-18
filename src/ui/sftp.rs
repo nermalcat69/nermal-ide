@@ -20,7 +20,7 @@ use crate::daemon::protocol::{
 };
 use crate::daemon::ssh::sftp::{remote_basename, remote_join, remote_parent, safe_local_name};
 use crate::terminal::RemoteTerminal;
-use crate::ui::app::{CONTENT_INSET, TILE_GLYPH_SM, TILE_SIZE_SM, NermalApp};
+use crate::ui::app::{CONTENT_INSET, NermalApp, TILE_GLYPH_SM, TILE_SIZE_SM};
 use crate::ui::i18n::{L10nKey, t, t_fmt};
 use crate::ui::right_panel::{META, TEXT};
 

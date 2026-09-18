@@ -155,7 +155,9 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsDimInactivePanes => "调暗非活动窗格",
         L10nKey::SettingsDimInactivePanesDesc => "在分屏中淡化未聚焦的窗格，让活动窗格更突出。",
         L10nKey::SettingsPaneFullResize => "拖拽窗格至边缘",
-        L10nKey::SettingsPaneFullResizeDesc => "允许将分屏的拖动条拖到接近边缘，把相邻窗格缩小到极小。",
+        L10nKey::SettingsPaneFullResizeDesc => {
+            "允许将分屏的拖动条拖到接近边缘，把相邻窗格缩小到极小。"
+        }
         L10nKey::SettingsOpenThemesFolder => "打开主题文件夹",
         L10nKey::SettingsChangeThemeImage => "更改…",
         L10nKey::SettingsChooseThemeImage => "选择…",
@@ -374,7 +376,9 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         }
         L10nKey::SettingsArgumentsInvalid => "引号不配对，该值未保存。",
         L10nKey::SettingsStartIn => "起始目录",
-        L10nKey::SettingsStartInDesc => "新 shell 的启动目录：nermal 的启动目录、主目录或固定路径。",
+        L10nKey::SettingsStartInDesc => {
+            "新 shell 的启动目录：nermal 的启动目录、主目录或固定路径。"
+        }
         L10nKey::SettingsCustomPath => "自定义路径",
         L10nKey::SettingsCustomPathDesc => "新 shell 启动的目录。",
         L10nKey::SettingsWdInherit => "继承",
@@ -422,7 +426,9 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsOpenFilesSystem => "默认应用",
         L10nKey::SettingsOpenFilesCommand => "自定义命令",
         L10nKey::SettingsEditorAutoSave => "自动保存",
-        L10nKey::SettingsEditorAutoSaveDesc => "每次编辑后很快将打开的文件保存到磁盘，而不是仅在按下 ctrl-s 时保存。",
+        L10nKey::SettingsEditorAutoSaveDesc => {
+            "每次编辑后很快将打开的文件保存到磁盘，而不是仅在按下 ctrl-s 时保存。"
+        }
         L10nKey::SettingsOpenFilesModeDesc => {
             "{modifier}+点击 文件链接时用什么打开。只有内置编辑器能跳到指定行、能打开远程主机上的文件。"
         }
@@ -1065,7 +1071,9 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::TerminalPanelEmpty => "没有正在运行的终端。",
         L10nKey::TerminalPanelEmptyHint => "打开一个新终端以开始。",
         L10nKey::PanelOpenIssue => "提交问题",
-        L10nKey::PanelFilesNowInSidebar => "项目文件现在位于左侧边栏。此标签页用于通过 SFTP 浏览远程主机。",
+        L10nKey::PanelFilesNowInSidebar => {
+            "项目文件现在位于左侧边栏。此标签页用于通过 SFTP 浏览远程主机。"
+        }
         L10nKey::PanelNoWorkingDirectory => "没有工作目录。",
         L10nKey::PanelNoWorkingDirectoryHint => "此窗格尚未报告工作目录。",
         L10nKey::PanelLoading => "加载中…",

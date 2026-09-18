@@ -549,7 +549,12 @@ mod macos {
 
             assert_eq!(fs::read_to_string(current.join("marker")).unwrap(), "new");
             assert!(!stage.exists());
-            assert!(!root.path().join(".nermal.app.nermal-update-backup").exists());
+            assert!(
+                !root
+                    .path()
+                    .join(".nermal.app.nermal-update-backup")
+                    .exists()
+            );
         }
 
         #[test]
@@ -1864,7 +1869,10 @@ mod windows {
             queue_cleanup(&plan.install_dir, &plan.stage);
             return Ok(());
         }
-        log_line(&plan.log, "the Windows update completed; relaunching nermal");
+        log_line(
+            &plan.log,
+            "the Windows update completed; relaunching nermal",
+        );
         let result = launch_app(&plan.install_dir);
         if let Err(error) = &result {
             log_line(&plan.log, error);
@@ -3199,7 +3207,9 @@ mod windows {
 
     fn with_relaunch_failure(mut message: String, relaunch: Result<(), String>) -> String {
         if let Err(error) = relaunch {
-            message.push_str(&format!("; relaunching the previous nermal failed: {error}"));
+            message.push_str(&format!(
+                "; relaunching the previous nermal failed: {error}"
+            ));
         }
         message
     }
@@ -3746,7 +3756,8 @@ mod windows {
             );
 
             report_outcome(Some(&outcome_path), &log, "27.0.0", &Ok(()));
-            let outcome = nermal_core::daemon::install::outcome::read_outcome(&outcome_path).unwrap();
+            let outcome =
+                nermal_core::daemon::install::outcome::read_outcome(&outcome_path).unwrap();
             assert_eq!(
                 outcome,
                 Some(nermal_core::daemon::install::outcome::UpdateOutcome {
@@ -3758,7 +3769,8 @@ mod windows {
 
             let failure: Result<(), String> = Err("the installer exited with code 5".to_string());
             report_outcome(Some(&outcome_path), &log, "27.0.0", &failure);
-            let outcome = nermal_core::daemon::install::outcome::read_outcome(&outcome_path).unwrap();
+            let outcome =
+                nermal_core::daemon::install::outcome::read_outcome(&outcome_path).unwrap();
             assert_eq!(
                 outcome,
                 Some(nermal_core::daemon::install::outcome::UpdateOutcome {

@@ -8217,9 +8217,11 @@ impl Render for NermalApp {
                 .on_action(cx.listener(|this, _: &DecreaseFontSize, _window, cx| {
                     this.change_all_font_sizes(-FONT_SIZE_STEP, cx)
                 }))
-                .on_action(cx.listener(|this, _: &ResetFontSize, _window, cx| {
-                    this.reset_all_font_sizes(cx)
-                }))
+                .on_action(
+                    cx.listener(|this, _: &ResetFontSize, _window, cx| {
+                        this.reset_all_font_sizes(cx)
+                    }),
+                )
                 .on_action(cx.listener(|this, _: &TogglePalette, window, cx| {
                     this.toggle_palette(window, cx)
                 }))

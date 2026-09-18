@@ -906,9 +906,9 @@ mod argument_tests {
     use super::{
         config_dir_from, explorer_menu_action_from, forward_open_path_with, open_path_from,
     };
+    use nermal_core::daemon::control::ReplyOk;
     use std::ffi::OsString;
     use std::path::PathBuf;
-    use nermal_core::daemon::control::ReplyOk;
 
     /// The installer passes exactly one of these; every other launch — above
     /// all a plain `--open-path` from the very menu they register — must fall

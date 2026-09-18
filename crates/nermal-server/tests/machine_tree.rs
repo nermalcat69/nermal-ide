@@ -520,7 +520,10 @@ fn a_server_started_after_the_upgrade_carries_the_legacy_tree_in() {
     started_once(home.path(), &[]);
 
     assert!(
-        home.path().join(".config/nermal").join(MACHINE_FILE).exists(),
+        home.path()
+            .join(".config/nermal")
+            .join(MACHINE_FILE)
+            .exists(),
         "the tree must arrive beside the rest of the config directory"
     );
     assert!(

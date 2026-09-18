@@ -40,7 +40,9 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::ConnectSshHint => "Type user@host to connect over SSH instead.",
         L10nKey::EditHint => "edit",
         L10nKey::OpenFileFromTree => "Open a file from the file tree",
-        L10nKey::EditorEmptyExploreHint => "You can explore files and edit them via the left sidebar",
+        L10nKey::EditorEmptyExploreHint => {
+            "You can explore files and edit them via the left sidebar"
+        }
         L10nKey::TreeDirLoading => "Reading…",
         L10nKey::TreeDirEmpty => "Empty",
         L10nKey::TreeDirHiddenOnly => "Only hidden files",
@@ -484,7 +486,9 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SettingsOpenFilesSystem => "Default app",
         L10nKey::SettingsOpenFilesCommand => "Command",
         L10nKey::SettingsEditorAutoSave => "Auto-save",
-        L10nKey::SettingsEditorAutoSaveDesc => "Save an open file to disk shortly after every edit, instead of only on ctrl-s.",
+        L10nKey::SettingsEditorAutoSaveDesc => {
+            "Save an open file to disk shortly after every edit, instead of only on ctrl-s."
+        }
         L10nKey::SettingsOpenFilesModeDesc => {
             "What a {modifier}-clicked file link opens. Only the built-in editor can jump to a line or open a file on a remote host."
         }
@@ -1109,10 +1113,14 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::PanelUsageByProcess => "By process",
         L10nKey::SettingsSourceControl => "Source Control",
         L10nKey::SettingsScmPostCommit => "After committing",
-        L10nKey::SettingsScmPostCommitDesc => "What the Commit button does next, on every workspace.",
+        L10nKey::SettingsScmPostCommitDesc => {
+            "What the Commit button does next, on every workspace."
+        }
         L10nKey::PanelActivitySubtitle => "Activity",
         L10nKey::PanelKillProcess => "Kill Process",
-        L10nKey::PanelKillProcessConfirm => "End process {pid}? Any unsaved work in it will be lost.",
+        L10nKey::PanelKillProcessConfirm => {
+            "End process {pid}? Any unsaved work in it will be lost."
+        }
         L10nKey::PanelNoAgents => "No terminal instances yet.",
         L10nKey::PanelNoAgentsHint => "Open one to see it here.",
         L10nKey::TerminalPanelEmpty => "No terminals running.",
@@ -1917,7 +1925,9 @@ pub fn translate_variant_en(key: L10nKey, branch: &'static str) -> Option<&'stat
         (L10nKey::SettingsImportSummary, "other") => {
             "{count} hosts added — {updated} updated, {unchanged} already current"
         }
-        (L10nKey::SettingsImportIgnored, "zero") => "Every option in the file has a nermal setting.",
+        (L10nKey::SettingsImportIgnored, "zero") => {
+            "Every option in the file has a nermal setting."
+        }
         (L10nKey::SettingsImportIgnored, "one") => {
             "1 option has no setting in nermal and was left in the file: {options}"
         }

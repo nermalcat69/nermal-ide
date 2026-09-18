@@ -3,11 +3,11 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use anyhow::{Result, bail};
-use serde_json::json;
 use nermal_core::client::PaneClient;
 use nermal_core::core::config;
 use nermal_core::daemon::protocol::FEATURE_HANDOFF;
 use nermal_core::daemon::spawn;
+use serde_json::json;
 
 use crate::commands::{Outcome, Report};
 

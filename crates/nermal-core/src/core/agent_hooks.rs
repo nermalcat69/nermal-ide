@@ -416,7 +416,9 @@ impl HookAgent {
                 &target.xdg_config_dir(),
                 &["opencode", "plugins", OWNED_FILE_STEM_JS],
             ),
-            HookAgent::Pi => target.under_home(&[".pi", "agent", "extensions", "nermal", "index.ts"]),
+            HookAgent::Pi => {
+                target.under_home(&[".pi", "agent", "extensions", "nermal", "index.ts"])
+            }
             HookAgent::Grok => target.under_home(&[".grok", "hooks", OWNED_FILE_STEM_JSON]),
             HookAgent::OhMyPi => {
                 target.under_home(&[".omp", "agent", "extensions", "nermal", "index.ts"])
@@ -1558,7 +1560,10 @@ mod tests {
             assert!(is_nermal_host_exe(name), "{name} hosts nermal shells");
         }
         for name in ["explorer.exe", "cmd.exe", "nermal", "nermal-app", "wt.exe"] {
-            assert!(!is_nermal_host_exe(name), "{name} is not a nermal host process");
+            assert!(
+                !is_nermal_host_exe(name),
+                "{name} is not a nermal host process"
+            );
         }
     }
 
@@ -1907,7 +1912,8 @@ mod tests {
         assert!(
             QWEN_HOOK_EVENTS
                 .iter()
-                .any(|(hook, nermal)| *hook == "PermissionRequest" && *nermal == "permission-request")
+                .any(|(hook, nermal)| *hook == "PermissionRequest"
+                    && *nermal == "permission-request")
         );
         assert!(
             !QWEN_HOOK_EVENTS
@@ -2161,7 +2167,10 @@ mod tests {
                 HookAgent::OpenCode,
                 "/home/me/.config/opencode/plugins/nermal.js",
             ),
-            (HookAgent::Pi, "/home/me/.pi/agent/extensions/nermal/index.ts"),
+            (
+                HookAgent::Pi,
+                "/home/me/.pi/agent/extensions/nermal/index.ts",
+            ),
             (HookAgent::Grok, "/home/me/.grok/hooks/nermal.json"),
             (
                 HookAgent::OhMyPi,
@@ -2783,7 +2792,8 @@ mod tests {
     /// comments and formatting — byte-for-byte alone.
     #[test]
     fn kimi_install_preserves_the_user_s_config_toml() {
-        let dir = std::env::temp_dir().join(format!("nermal-kimi-hooks-test-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("nermal-kimi-hooks-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let config = dir.join("config.toml");

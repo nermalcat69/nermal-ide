@@ -25,7 +25,10 @@ pub(crate) fn sample() -> Option<f32> {
 /// separate install.
 fn nvidia_smi() -> Option<f32> {
     let out = std::process::Command::new("nvidia-smi")
-        .args(["--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"])
+        .args([
+            "--query-gpu=utilization.gpu",
+            "--format=csv,noheader,nounits",
+        ])
         .output()
         .ok()?;
     if !out.status.success() {
@@ -85,6 +88,9 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn number_after_is_none_when_the_key_is_absent() {
-        assert_eq!(number_after("nothing here", "\"Device Utilization %\""), None);
+        assert_eq!(
+            number_after("nothing here", "\"Device Utilization %\""),
+            None
+        );
     }
 }

@@ -4221,8 +4221,8 @@ mod parked_cursor_tests {
 mod replayed_mode_tests {
     use super::replay_tests::socket_pair;
     use super::*;
-    use std::io::Write as _;
     use nermal_core::core::term_modes::TerminalModes;
+    use std::io::Write as _;
 
     #[test]
     fn a_replayed_mode_frame_puts_the_client_back_on_the_alternate_screen() {

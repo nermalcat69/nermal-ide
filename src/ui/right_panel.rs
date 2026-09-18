@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use crate::core::config::{Config, RightPanelTab};
 use crate::daemon::protocol::{ManagedForward, PaneProcs, PortProbe};
 use crate::ui::app::{
-    CONTENT_INSET, TILE_GLYPH_SM, TILE_GLYPH_XS, TILE_SIZE_SM, TILE_SIZE_XS, NermalApp,
+    CONTENT_INSET, NermalApp, TILE_GLYPH_SM, TILE_GLYPH_XS, TILE_SIZE_SM, TILE_SIZE_XS,
     tile_trailing_inset, tile_trailing_inset_sm,
 };
 use crate::ui::i18n::{L10nKey, t, t_fmt};
@@ -962,7 +962,8 @@ impl NermalApp {
                 );
                 if view.host_id().is_local()
                     && let Some(cwd) = view.git_status_cwd()
-                    && let Some(cache) = cx.try_global::<crate::terminal::git_status::GitStatusCache>()
+                    && let Some(cache) =
+                        cx.try_global::<crate::terminal::git_status::GitStatusCache>()
                 {
                     heatmap_root = cache
                         .repo_root_for(view.host_id(), cwd)
@@ -1641,7 +1642,10 @@ impl NermalApp {
     fn kill_local_process(&mut self, pid: u32, window: &mut Window, cx: &mut Context<Self>) {
         let answer = window.prompt(
             gpui::PromptLevel::Warning,
-            &t_fmt(L10nKey::PanelKillProcessConfirm, &[("pid", &pid.to_string())]),
+            &t_fmt(
+                L10nKey::PanelKillProcessConfirm,
+                &[("pid", &pid.to_string())],
+            ),
             None,
             &crate::ui::confirm_answers(t(L10nKey::PanelKillProcess), t(L10nKey::Cancel)),
             cx,
@@ -2040,7 +2044,9 @@ impl NermalApp {
             self.right_panel.usage_watching = true;
             cx.spawn_in(window, async move |this, cx| {
                 loop {
-                    let sample = cx.background_spawn(async { sample_workspace_usage() }).await;
+                    let sample = cx
+                        .background_spawn(async { sample_workspace_usage() })
+                        .await;
                     let alive = this
                         .update(cx, |this, cx| {
                             let stop = !(this.right_panel_visible
@@ -2069,11 +2075,19 @@ impl NermalApp {
                     .px(px(CONTENT_INSET - ROW_INSET))
                     .py(px(4.))
                     .gap(px(10.))
-                    .child(self.usage_stat(t(L10nKey::PanelUsageCpu), format!("{:.1}%", usage.cpu_percent), cx))
+                    .child(self.usage_stat(
+                        t(L10nKey::PanelUsageCpu),
+                        format!("{:.1}%", usage.cpu_percent),
+                        cx,
+                    ))
                     .children(usage.gpu_percent.map(|gpu| {
                         self.usage_stat(t(L10nKey::PanelUsageGpu), format!("{gpu:.1}%"), cx)
                     }))
-                    .child(self.usage_stat(t(L10nKey::PanelUsageMemory), format_memory(usage.memory_bytes), cx))
+                    .child(self.usage_stat(
+                        t(L10nKey::PanelUsageMemory),
+                        format_memory(usage.memory_bytes),
+                        cx,
+                    ))
                     .child(self.usage_stat(
                         t(L10nKey::PanelUsageProcesses),
                         usage.process_count.to_string(),
@@ -2118,7 +2132,11 @@ impl NermalApp {
                     .text_size(rems(TEXT))
                     .font_family(cx.theme().mono_font_family.clone())
                     .text_color(cx.theme().muted_foreground)
-                    .child(format!("{:.1}%  {}", proc_.cpu_percent, format_memory(proc_.memory_bytes))),
+                    .child(format!(
+                        "{:.1}%  {}",
+                        proc_.cpu_percent,
+                        format_memory(proc_.memory_bytes)
+                    )),
             )
             .into_any_element()
     }
@@ -2180,11 +2198,12 @@ impl NermalApp {
                         local_panes
                             .into_iter()
                             .map(|pane_id| {
-                                let total: u64 = crate::terminal::RemoteTerminal::query_procs(pane_id)
-                                    .procs
-                                    .iter()
-                                    .map(|p| p.memory_bytes)
-                                    .sum();
+                                let total: u64 =
+                                    crate::terminal::RemoteTerminal::query_procs(pane_id)
+                                        .procs
+                                        .iter()
+                                        .map(|p| p.memory_bytes)
+                                        .sum();
                                 (pane_id, total)
                             })
                             .collect()
@@ -2335,7 +2354,11 @@ impl NermalApp {
             let renaming_input = self
                 .renaming
                 .as_ref()
-                .filter(|r| self.tabs.get(tab_index).is_some_and(|t| t.tree_id.get() == r.tab))
+                .filter(|r| {
+                    self.tabs
+                        .get(tab_index)
+                        .is_some_and(|t| t.tree_id.get() == r.tab)
+                })
                 .map(|r| r.input.clone());
             let row_id = gpui::SharedString::from(format!("panel-agent-row-{i}"));
             let name_area = match renaming_input {
@@ -2466,7 +2489,8 @@ impl NermalApp {
                 .rounded(px(6.))
                 .text_size(rems(META))
                 .when(active, |d| {
-                    d.bg(cx.theme().primary).text_color(cx.theme().primary_foreground)
+                    d.bg(cx.theme().primary)
+                        .text_color(cx.theme().primary_foreground)
                 })
                 .when(!active, |d| {
                     d.text_color(cx.theme().muted_foreground)
@@ -2483,11 +2507,16 @@ impl NermalApp {
             .px(px(CONTENT_INSET))
             .py(px(6.))
             .child(
-                tile("instance-category-all".into(), t(L10nKey::PanelAllInstances).to_string(), selected.is_none(), cx)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.right_panel.instances_category = None;
-                        cx.notify();
-                    })),
+                tile(
+                    "instance-category-all".into(),
+                    t(L10nKey::PanelAllInstances).to_string(),
+                    selected.is_none(),
+                    cx,
+                )
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.right_panel.instances_category = None;
+                    cx.notify();
+                })),
             );
         for name in categories {
             let key = crate::core::group_key::GroupKey::Custom(name.clone());
@@ -2521,24 +2550,28 @@ impl NermalApp {
                 )
                 .rounded_md()
                 .tooltip(t(L10nKey::PanelNewCategory))
-                .on_click(cx.listener(|this, _, window, cx| this.open_new_instance_category(window, cx))),
+                .on_click(
+                    cx.listener(|this, _, window, cx| this.open_new_instance_category(window, cx)),
+                ),
             );
         }
-        strip
-            .child(div().flex_1())
-            .into_any_element()
+        strip.child(div().flex_1()).into_any_element()
     }
 
     fn open_new_instance_category(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let input = Self::rename_box(String::new(), window, cx);
-        let sub = cx.subscribe_in(&input, window, |this, _input, ev: &InputEvent, window, cx| {
-            match ev {
-                InputEvent::PressEnter { .. } => this.commit_new_instance_category(window, cx),
-                InputEvent::Blur => this.right_panel.instances_new_category = None,
-                _ => {}
-            }
-            cx.notify();
-        });
+        let sub = cx.subscribe_in(
+            &input,
+            window,
+            |this, _input, ev: &InputEvent, window, cx| {
+                match ev {
+                    InputEvent::PressEnter { .. } => this.commit_new_instance_category(window, cx),
+                    InputEvent::Blur => this.right_panel.instances_new_category = None,
+                    _ => {}
+                }
+                cx.notify();
+            },
+        );
         self.right_panel.instances_new_category = Some(input);
         self.right_panel.instances_new_category_sub = Some(sub);
         cx.notify();

@@ -293,7 +293,11 @@ fn proc_memory(pid: u32) -> u64 {
             size,
         )
     };
-    if ret == size { info.pti_resident_size } else { 0 }
+    if ret == size {
+        info.pti_resident_size
+    } else {
+        0
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -412,11 +416,7 @@ fn proc_memory(pid: u32) -> u64 {
         OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_VM_READ,
     };
     unsafe {
-        let handle = OpenProcess(
-            PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ,
-            0,
-            pid,
-        );
+        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, 0, pid);
         if handle.is_null() {
             return 0;
         }

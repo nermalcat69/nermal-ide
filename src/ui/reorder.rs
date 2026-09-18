@@ -1,8 +1,8 @@
 use gpui::{Axis, Bounds, Pixels, Point, Styled, px};
-use std::cell::{Cell, RefCell};
-use std::rc::Rc;
 use nermal_core::core::group_key::GroupKey;
 use nermal_core::core::machine::TabId;
+use std::cell::{Cell, RefCell};
+use std::rc::Rc;
 
 pub(crate) type ReorderState = Rc<RefCell<Option<Reorder>>>;
 

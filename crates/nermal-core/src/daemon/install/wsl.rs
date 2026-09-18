@@ -1158,7 +1158,9 @@ mod tests {
     fn the_stat_probe_round_trips_its_three_answers() {
         assert_eq!(parse_stat("__nermal_wsl__ stat=none 0 0\n").unwrap(), None);
 
-        let dir = parse_stat("__nermal_wsl__ stat=dir 0 0\n").unwrap().unwrap();
+        let dir = parse_stat("__nermal_wsl__ stat=dir 0 0\n")
+            .unwrap()
+            .unwrap();
         assert!(dir.is_dir);
 
         let exe = parse_stat("__nermal_wsl__ stat=file 755 6291456\n")
@@ -1678,7 +1680,10 @@ mod tests {
         let (a, b) = (nowhere("map-a"), nowhere("map-b"));
         remember(&a, note("/a/nermal-server"));
         remember(&b, note("/b/nermal-server"));
-        assert_eq!(remembered_wsl_server(&a).as_deref(), Some("/a/nermal-server"));
+        assert_eq!(
+            remembered_wsl_server(&a).as_deref(),
+            Some("/a/nermal-server")
+        );
 
         forget_wsl_server(&a);
         assert_eq!(remembered_wsl_server(&a), None);

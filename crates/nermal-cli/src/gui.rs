@@ -55,7 +55,9 @@ pub fn find_executable() -> Result<PathBuf> {
         }
     }
 
-    bail!("could not find {name} next to this CLI or on PATH — install nermal-app, or set nermal_APP")
+    bail!(
+        "could not find {name} next to this CLI or on PATH — install nermal-app, or set nermal_APP"
+    )
 }
 
 fn executable_name() -> &'static str {

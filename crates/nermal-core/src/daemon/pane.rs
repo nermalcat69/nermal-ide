@@ -1229,7 +1229,9 @@ impl MasterPty for AdoptedMaster {
                 return None;
             }
             let cstr = unsafe { std::ffi::CStr::from_ptr(buf.as_ptr()) };
-            return Some(std::path::PathBuf::from(cstr.to_string_lossy().into_owned()));
+            return Some(std::path::PathBuf::from(
+                cstr.to_string_lossy().into_owned(),
+            ));
         }
     }
 }
@@ -3799,7 +3801,10 @@ mod tests {
     fn env_only_integration_keeps_default_login_shell_builder() {
         let mut cmd = CommandBuilder::new_default_prog();
         let mut env = std::collections::HashMap::new();
-        env.insert("ZDOTDIR".to_string(), "/tmp/nermal-zdotdir-test".to_string());
+        env.insert(
+            "ZDOTDIR".to_string(),
+            "/tmp/nermal-zdotdir-test".to_string(),
+        );
         let injection = shell_integration::Injection {
             env,
             args: Vec::new(),
@@ -5167,7 +5172,10 @@ mod tests {
 
         apply_probed_cwd(&mut st, Some(PathBuf::from("/Users/alice/dev/nermal")));
 
-        assert_eq!(st.cwd.as_deref(), Some(Path::new("/Users/alice/dev/nermal")));
+        assert_eq!(
+            st.cwd.as_deref(),
+            Some(Path::new("/Users/alice/dev/nermal"))
+        );
         assert!(
             matches!(rx.try_recv(), Ok(DaemonMsg::Cwd(p)) if p == PathBuf::from("/Users/alice/dev/nermal"))
         );
@@ -5205,7 +5213,10 @@ mod tests {
 
         apply_probed_cwd(&mut st, Some(PathBuf::from("/Users/alice/dev/nermal")));
 
-        assert_eq!(st.cwd.as_deref(), Some(Path::new("/Users/alice/dev/nermal")));
+        assert_eq!(
+            st.cwd.as_deref(),
+            Some(Path::new("/Users/alice/dev/nermal"))
+        );
         assert!(rx.try_recv().is_err());
     }
 

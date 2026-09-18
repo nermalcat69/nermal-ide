@@ -34,8 +34,8 @@ use crate::core::ssh_profile::{
 };
 use crate::daemon::protocol::{SshTestNeed, SshTestReport};
 use crate::ui::app::{
-    FONT_SIZE_STEP, LINE_HEIGHT_STEP, TILE_GLYPH_LINE, TILE_SIZE, TITLE_BAR_HEIGHT, ThemeEdit,
-    NermalApp, UI_FONT_SIZE_STEP,
+    FONT_SIZE_STEP, LINE_HEIGHT_STEP, NermalApp, TILE_GLYPH_LINE, TILE_SIZE, TITLE_BAR_HEIGHT,
+    ThemeEdit, UI_FONT_SIZE_STEP,
 };
 use crate::ui::host_ops::HostId;
 use crate::ui::i18n::{L10nKey, t, t_fmt, t_plural};

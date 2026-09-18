@@ -11,7 +11,7 @@ use crate::daemon::protocol::{
     NativeSshSpec, SshAlgorithms, SshAuthMode, SshForwardKind, SshForwardRule, SshProxy,
 };
 
-use super::app::{SpawnAs, SpawnWhere, NermalApp};
+use super::app::{NermalApp, SpawnAs, SpawnWhere};
 
 impl NermalApp {
     pub(crate) fn native_ssh_spec_for_profile(

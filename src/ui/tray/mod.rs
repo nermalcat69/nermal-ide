@@ -143,7 +143,10 @@ pub(crate) fn menu_spec(snap: &TraySnapshot) -> Vec<SpecItem> {
         checked: None,
         avatar: None,
     };
-    let mut items = vec![item("show", t(L10nKey::TrayShownermal)), SpecItem::Separator];
+    let mut items = vec![
+        item("show", t(L10nKey::TrayShownermal)),
+        SpecItem::Separator,
+    ];
     for a in &snap.agents {
         let state = match a.status {
             AgentStatus::Waiting => {

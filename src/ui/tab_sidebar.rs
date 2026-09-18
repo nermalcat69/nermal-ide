@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use crate::core::config::{Config, SidebarGrouping};
 use crate::core::group_key::{GroupKey, collapse_key};
 use crate::terminal::git_status::GitStatusCache;
-use crate::ui::app::{TITLE_BAR_HEIGHT, Tab, NermalApp};
+use crate::ui::app::{NermalApp, TITLE_BAR_HEIGHT, Tab};
 use crate::ui::hints::tab_badge_label;
 use crate::ui::i18n::{L10nKey, t, t_fmt};
 use crate::ui::reorder::{self, Reorder, Surface};

@@ -495,7 +495,9 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsOpenFilesSystem => "デフォルトアプリ",
         L10nKey::SettingsOpenFilesCommand => "コマンド",
         L10nKey::SettingsEditorAutoSave => "自動保存",
-        L10nKey::SettingsEditorAutoSaveDesc => "編集のたびに、ctrl-sを待たずにファイルを自動的に保存します。",
+        L10nKey::SettingsEditorAutoSaveDesc => {
+            "編集のたびに、ctrl-sを待たずにファイルを自動的に保存します。"
+        }
         L10nKey::SettingsOpenFilesModeDesc => {
             "ファイルリンクを {modifier}+クリックしたときに開くもの。行番号へのジャンプとリモートファイルを開けるのは内蔵エディタだけです"
         }
@@ -1173,10 +1175,14 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::PanelUsageByProcess => "プロセス別",
         L10nKey::SettingsSourceControl => "ソース管理",
         L10nKey::SettingsScmPostCommit => "コミット後の動作",
-        L10nKey::SettingsScmPostCommitDesc => "コミットボタンの次の動作。すべてのワークスペースに適用されます。",
+        L10nKey::SettingsScmPostCommitDesc => {
+            "コミットボタンの次の動作。すべてのワークスペースに適用されます。"
+        }
         L10nKey::PanelActivitySubtitle => "アクティビティ",
         L10nKey::PanelKillProcess => "プロセスを終了",
-        L10nKey::PanelKillProcessConfirm => "プロセス{pid}を終了しますか?保存されていない作業は失われます。",
+        L10nKey::PanelKillProcessConfirm => {
+            "プロセス{pid}を終了しますか?保存されていない作業は失われます。"
+        }
         L10nKey::PanelNoAgents => "ターミナルインスタンスはまだありません",
         L10nKey::PanelNoAgentsHint => "開くとここに表示されます",
         L10nKey::TerminalPanelEmpty => "ターミナルが実行されていません",
@@ -1200,7 +1206,9 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::PanelProcessesSubtitle => "プロセス",
         L10nKey::PanelPortsSubtitle => "ポート",
         L10nKey::PanelLatency => "遅延",
-        L10nKey::PanelPortsUnsupported => "リモートの nermal-server が古く、ポートを列挙できません。",
+        L10nKey::PanelPortsUnsupported => {
+            "リモートの nermal-server が古く、ポートを列挙できません。"
+        }
         L10nKey::PanelPortsProbeFailed => {
             "このペインが何をリッスンしているか確認できませんでした。"
         }
@@ -1523,7 +1531,9 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SwitcherFormPickHint => "↑↓ で選択 · Enter で決定 · Esc で閉じる",
         L10nKey::SwitcherFormFolder => "フォルダー",
         L10nKey::SwitcherFormChooseFolder => "フォルダーを選択…",
-        L10nKey::SwitcherFormFolderRequiredHint => "ワークスペースを作成するにはフォルダーを選んでください",
+        L10nKey::SwitcherFormFolderRequiredHint => {
+            "ワークスペースを作成するにはフォルダーを選んでください"
+        }
         L10nKey::SshPromptPasswordFor => "{user}@{host} のパスワード",
         L10nKey::SshPromptPassphraseFor => "{key_path} のパスフレーズ",
         L10nKey::SshPromptTwoFactor => "二要素認証",

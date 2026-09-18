@@ -243,7 +243,12 @@ impl FileTreeState {
         }
     }
 
-    fn sync_watch(&mut self, host: SharedHost, dirs: HashSet<PathBuf>, cx: &mut Context<NermalApp>) {
+    fn sync_watch(
+        &mut self,
+        host: SharedHost,
+        dirs: HashSet<PathBuf>,
+        cx: &mut Context<NermalApp>,
+    ) {
         self.watched = dirs;
         let want: Vec<PathBuf> = self.watched.iter().cloned().collect();
         if !self
@@ -3479,7 +3484,8 @@ mod render_idle_gpui_tests {
         // the right panel has nothing to do with whether it is on screen.
         app.update_in(&mut vcx, |app, _, cx| {
             app.sidebar_collapsed = true;
-            cx.global_mut::<crate::core::config::Config>().sidebar_collapsed = true;
+            cx.global_mut::<crate::core::config::Config>()
+                .sidebar_collapsed = true;
             cx.notify();
         });
         vcx.background_executor.run_until_parked();
@@ -3507,7 +3513,8 @@ mod render_idle_gpui_tests {
 
         app.update_in(&mut vcx, |app, _, cx| {
             app.sidebar_collapsed = false;
-            cx.global_mut::<crate::core::config::Config>().sidebar_collapsed = false;
+            cx.global_mut::<crate::core::config::Config>()
+                .sidebar_collapsed = false;
             cx.notify();
         });
         settle(&app, &mut vcx, &root);

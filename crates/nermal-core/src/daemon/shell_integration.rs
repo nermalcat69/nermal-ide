@@ -1362,7 +1362,9 @@ pub mod remote {
         );
         out.push_str("if [ -s \"$__nermal_d/bashrc\" ]; then\n");
         out.push_str("export nermal_RM_DIR=\"$__nermal_d\"\n");
-        out.push_str(&format!("exec {quoted} --rcfile \"$__nermal_d/bashrc\" -i\n"));
+        out.push_str(&format!(
+            "exec {quoted} --rcfile \"$__nermal_d/bashrc\" -i\n"
+        ));
         out.push_str("fi\n");
         out.push_str(&format!("exec {quoted} -l\n"));
         out
@@ -1969,10 +1971,9 @@ mod tests {
     fn the_wsl_bootstrap_carries_integration_for_zsh_too() {
         let script = wsl_exec_script();
 
-        assert!(
-            script
-                .contains(r#"*/zsh) [ -n "${nermal_ZDOTDIR:-}" ] && [ -r "$nermal_ZDOTDIR/.zshrc" ] "#)
-        );
+        assert!(script.contains(
+            r#"*/zsh) [ -n "${nermal_ZDOTDIR:-}" ] && [ -r "$nermal_ZDOTDIR/.zshrc" ] "#
+        ));
         assert!(script.contains(r#"&& export ZDOTDIR="$nermal_ZDOTDIR"; exec "$SHELL" -l ;;"#));
 
         // The redirectors read this to find the user's own startup files, and
@@ -2137,13 +2138,19 @@ mod tests {
         );
         assert_eq!(wslenv_with(None, &["nermal_RC/p"]), "nermal_RC/p");
         assert_eq!(wslenv_with(Some(""), &["nermal_RC/p"]), "nermal_RC/p");
-        assert_eq!(wslenv_with(Some("nermal_RC/l"), &["nermal_RC/p"]), "nermal_RC/l");
+        assert_eq!(
+            wslenv_with(Some("nermal_RC/l"), &["nermal_RC/p"]),
+            "nermal_RC/l"
+        );
         assert_eq!(
             wslenv_with(None, &["nermal_RC/p", "nermal_ZDOTDIR/p"]),
             "nermal_RC/p:nermal_ZDOTDIR/p"
         );
         assert_eq!(
-            wslenv_with(Some("nermal_ZDOTDIR/l"), &["nermal_RC/p", "nermal_ZDOTDIR/p"]),
+            wslenv_with(
+                Some("nermal_ZDOTDIR/l"),
+                &["nermal_RC/p", "nermal_ZDOTDIR/p"]
+            ),
             "nermal_ZDOTDIR/l:nermal_RC/p"
         );
     }
@@ -2229,7 +2236,9 @@ mod tests {
     #[test]
     fn zsh_redirectors_point_zdotdir_at_the_real_dir_only_while_sourcing() {
         for (name, body) in zsh_redirectors() {
-            let save = body.find("__nermal_ztmp=$ZDOTDIR").expect("stashes our dir");
+            let save = body
+                .find("__nermal_ztmp=$ZDOTDIR")
+                .expect("stashes our dir");
             let aim = body
                 .find("ZDOTDIR=$nermal_USER_ZDOTDIR")
                 .expect("aims at the real dir");

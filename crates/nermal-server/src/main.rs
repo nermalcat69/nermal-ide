@@ -95,11 +95,11 @@ fn run_stdio(args: &[String]) -> io::Result<()> {
 
     #[cfg(unix)]
     {
-        use std::os::unix::net::UnixStream;
         use nermal_core::daemon::duplex::StdioDuplex;
         use nermal_core::daemon::spawn;
         use nermal_core::host::local::LocalHost;
         use nermal_core::host::server;
+        use std::os::unix::net::UnixStream;
 
         let force_serve = args.iter().any(|a| a == "--serve");
         let force_bridge = args.iter().any(|a| a == "--bridge");

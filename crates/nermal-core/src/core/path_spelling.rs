@@ -331,7 +331,11 @@ mod tests {
     fn a_device_namespace_has_no_plain_form_and_is_left_whole() {
         // `\\?\pipe\…` and `\\.\…` are not filesystem paths with a drive to
         // fall back to; rewriting either would name nothing.
-        for p in [r"\\?\pipe\nermal", r"\\.\PhysicalDrive0", r"\\?\Volume{0}\x"] {
+        for p in [
+            r"\\?\pipe\nermal",
+            r"\\.\PhysicalDrive0",
+            r"\\?\Volume{0}\x",
+        ] {
             assert_eq!(local_spelling(Path::new(p)).as_ref(), Path::new(p), "{p:?}");
         }
     }

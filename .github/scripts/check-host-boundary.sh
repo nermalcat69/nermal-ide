@@ -89,6 +89,21 @@ src/terminal/search.rs|.is_absolute()
 src/terminal/view.rs|std::fs::create_dir_all
 src/terminal/view.rs|std::fs::write
 
+# The lines-changed heatmap shells out to `git log` on `root`, but `root` only
+# ever reaches `fetch` after `right_panel.rs` has already checked
+# `view.host_id().is_local()` — a remote pane leaves `heatmap_root` at `None`
+# and this never runs.
+src/ui/git_heatmap.rs|Command::new("git")
+
+# The file search panel walks and greps `code.roots` on local disk and shells
+# out to `git status` for its modified-only filter. Both `run_search` and
+# `search_replace_all` bail out first when `!self.spawn_host(cx).is_local()`,
+# so by the time these run the roots are this machine's, never a remote
+# workspace's.
+src/ui/search_panel.rs|std::fs::read_to_string
+src/ui/search_panel.rs|std::fs::write
+src/ui/search_panel.rs|Command::new("git")
+
 # Asking whether a file would be *launched* rather than shown before handing it
 # to the desktop opener. Only reachable behind `host_id.is_local()` — a path on
 # another machine takes the earlier arm and never gets here.

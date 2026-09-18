@@ -1,12 +1,12 @@
 use anyhow::{Context as _, Result, bail};
-use serde_json::{Value, json};
-use std::time::Duration;
 use nermal_core::core::agent_hooks::{HookAgent, HooksState};
 use nermal_core::core::machine::{Axis, Machine, PaneSeed, Workspace};
 use nermal_core::core::session::WorkspaceId;
 use nermal_core::core::tab_view::tab_views_of;
 use nermal_core::daemon::control::{CONTROL_VERSION, ControlEvent, ControlRequest, ReplyOk};
 use nermal_core::daemon::protocol::PROTOCOL_VERSION;
+use serde_json::{Value, json};
+use std::time::Duration;
 
 use crate::address::{self, Context, WorkspaceAddress};
 use crate::backend::{Backend, RunSpec};
@@ -1135,8 +1135,8 @@ fn event_line(event: &ControlEvent) -> String {
 /// management. At the default 500ms interval an agent wait costs one aggregate
 /// control request per tick — the same request `nermal agents` makes once.
 fn wait(args: WaitArgs, ctx: &Context, backend: &mut dyn Backend) -> Result<Outcome> {
-    use std::time::{Duration, Instant};
     use nermal_core::core::cli_agent::AgentStatus;
+    use std::time::{Duration, Instant};
 
     /// How many polls may pass before liveness is re-checked. The agent
     /// snapshot carries no liveness of its own and the daemon keeps a dead
@@ -2137,7 +2137,11 @@ mod tests {
         let api = backend.machine.workspaces[0].id;
         let web = backend.machine.workspaces[1].id;
 
-        run_cli(&["nermal", "ws", "rename", "api", "core"], &ctx, &mut backend);
+        run_cli(
+            &["nermal", "ws", "rename", "api", "core"],
+            &ctx,
+            &mut backend,
+        );
         assert_eq!(
             backend.control_calls[1],
             ControlRequest::WorkspaceRename {
@@ -2823,8 +2827,12 @@ mod tests {
         // 2 and run it" would press Enter in pane 2 instead. Both ways out are
         // named, because either could have been meant.
         let mut backend = mock();
-        let err = execute(cli(&["nermal", "send", "83", "--enter"]), &ctx, &mut backend)
-            .expect_err("--enter alone does not make a bare id a target");
+        let err = execute(
+            cli(&["nermal", "send", "83", "--enter"]),
+            &ctx,
+            &mut backend,
+        )
+        .expect_err("--enter alone does not make a bare id a target");
         assert!(err.to_string().contains("send %83 --enter"), "{err}");
         assert!(err.to_string().contains("send %PANE 83 --enter"), "{err}");
         assert!(
@@ -2971,7 +2979,11 @@ mod tests {
             "without --plain the pane's bytes are passed through untouched"
         );
 
-        run_cli(&["nermal", "procs", "%1"], &Context::default(), &mut backend);
+        run_cli(
+            &["nermal", "procs", "%1"],
+            &Context::default(),
+            &mut backend,
+        );
         assert_eq!(backend.procs_calls, vec![1]);
     }
 
@@ -3159,7 +3171,8 @@ mod tests {
         let api = backend.machine.workspaces[0].id;
         let out = execute(
             cli(&[
-                "nermal", "run", "--keep", "--ws", "api", "--cwd", "C:\\proj", "--", "cargo", "watch",
+                "nermal", "run", "--keep", "--ws", "api", "--cwd", "C:\\proj", "--", "cargo",
+                "watch",
             ]),
             &Context::default(),
             &mut backend,
@@ -3764,7 +3777,15 @@ mod tests {
         backend.procs_replies.push_back(idle_procs());
 
         let json = json_of(run_cli(
-            &["nermal", "wait", "%3", "--until", "free", "--interval", "50"],
+            &[
+                "nermal",
+                "wait",
+                "%3",
+                "--until",
+                "free",
+                "--interval",
+                "50",
+            ],
             &Context::default(),
             &mut backend,
         ));
@@ -3941,7 +3962,15 @@ mod tests {
         }
         backend.procs_reply = nermal_core::daemon::protocol::PaneProcs::default();
         let out = execute(
-            cli(&["nermal", "wait", "%3", "--until", "free", "--interval", "50"]),
+            cli(&[
+                "nermal",
+                "wait",
+                "%3",
+                "--until",
+                "free",
+                "--interval",
+                "50",
+            ]),
             &Context::default(),
             &mut backend,
         )
@@ -3981,7 +4010,15 @@ mod tests {
         backend.procs_replies.push_back(ssh_procs(Some(true), true));
 
         let json = json_of(run_cli(
-            &["nermal", "wait", "%3", "--until", "free", "--interval", "50"],
+            &[
+                "nermal",
+                "wait",
+                "%3",
+                "--until",
+                "free",
+                "--interval",
+                "50",
+            ],
             &Context::default(),
             &mut backend,
         ));
@@ -4023,7 +4060,15 @@ mod tests {
         // Deliberately no `--timeout`: the old code would have polled here
         // until something killed it.
         let out = execute(
-            cli(&["nermal", "wait", "%3", "--until", "free", "--interval", "50"]),
+            cli(&[
+                "nermal",
+                "wait",
+                "%3",
+                "--until",
+                "free",
+                "--interval",
+                "50",
+            ]),
             &Context::default(),
             &mut backend,
         )

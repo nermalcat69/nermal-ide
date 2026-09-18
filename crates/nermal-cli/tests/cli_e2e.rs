@@ -640,7 +640,12 @@ fn send_then_capture_round_trip(daemon: &Daemon) {
     let pane = created["pane"].as_u64().expect("new prints the pane id");
     let address = format!("%{pane}");
 
-    daemon.run_ok(&["send", &address, "echo nermal_e2e_capture_marker", "--enter"]);
+    daemon.run_ok(&[
+        "send",
+        &address,
+        "echo nermal_e2e_capture_marker",
+        "--enter",
+    ]);
 
     let deadline = Instant::now() + SETTLE_WITHIN;
     loop {

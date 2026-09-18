@@ -485,7 +485,11 @@ mod tests {
         let leaked: Vec<_> = std::fs::read_dir(&dir)
             .expect("read the temp directory")
             .flatten()
-            .filter(|e| e.file_name().to_string_lossy().starts_with("nermal-handoff-"))
+            .filter(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .starts_with("nermal-handoff-")
+            })
             .collect();
         assert!(
             leaked.is_empty(),

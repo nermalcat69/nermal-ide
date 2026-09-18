@@ -1,6 +1,7 @@
 use anyhow::{Context as _, Result};
 use gpui::http_client::{AsyncBody, HttpClient as _, HttpRequestExt as _, RedirectPolicy};
 use gpui::{AnyWindowHandle, App, AsyncApp, Global, PromptLevel, Window, http_client};
+use nermal_core::daemon::install::AssetFetcher as _;
 use reqwest_client::ReqwestClient;
 use smol::future::FutureExt as _;
 use smol::io::AsyncReadExt as _;
@@ -9,7 +10,6 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
-use nermal_core::daemon::install::AssetFetcher as _;
 
 use crate::core::config::{Config, UpdateChannel};
 use crate::ui::i18n::{L10nKey, t, t_fmt};
@@ -30,7 +30,8 @@ pub const RELEASES_URL: &str = "https://github.com/nermalcat69/nermal-ide/releas
 /// nights — the tag stays put even as the commit under it moves. Spelled out
 /// rather than built from `NIGHTLY_TAG`, which `concat!` cannot take; the tail
 /// is asserted against it in `each_channel_reads_its_own_feed` instead.
-pub const NIGHTLY_RELEASE_URL: &str = "https://github.com/nermalcat69/nermal-ide/releases/tag/nightly";
+pub const NIGHTLY_RELEASE_URL: &str =
+    "https://github.com/nermalcat69/nermal-ide/releases/tag/nightly";
 
 const CHECK_TIMEOUT: Duration = Duration::from_secs(15);
 
@@ -2604,7 +2605,10 @@ fn bundled_updater() -> Option<PathBuf> {
 /// that is not the one this process actually runs beside.
 #[cfg(target_os = "linux")]
 fn bundled_updater() -> Option<PathBuf> {
-    let updater = std::env::current_exe().ok()?.parent()?.join("nermal-updater");
+    let updater = std::env::current_exe()
+        .ok()?
+        .parent()?
+        .join("nermal-updater");
     updater.is_file().then_some(updater)
 }
 
@@ -3112,7 +3116,9 @@ mod tests {
         // helper shipped: still an AppImage, still updated by hand.
         assert_eq!(
             linux_package_for("27.1.0", "x86_64", true, false).unwrap_err(),
-            UpdateInstallHint::LinuxManualPackage("nermal-27.1.0-linux-x86_64.AppImage".to_string())
+            UpdateInstallHint::LinuxManualPackage(
+                "nermal-27.1.0-linux-x86_64.AppImage".to_string()
+            )
         );
         // A tarball (or distro-packaged) install is never guessed at.
         assert_eq!(

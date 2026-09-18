@@ -79,7 +79,9 @@ pub fn install(enabled: bool) -> Outcome {
         Outcome::Disabled | Outcome::NoBundledCli | Outcome::DevBuild => {
             log::debug!("cli install skipped: {outcome:?}")
         }
-        Outcome::AlreadyInstalled(p) => log::debug!("nermal CLI already on PATH at {}", p.display()),
+        Outcome::AlreadyInstalled(p) => {
+            log::debug!("nermal CLI already on PATH at {}", p.display())
+        }
         Outcome::Installed(p) => log::info!("put the nermal CLI on PATH at {}", p.display()),
         Outcome::InstalledOffPath(p) => log::warn!(
             "installed the nermal CLI at {}, which is not on your PATH — add it to use `nermal` \

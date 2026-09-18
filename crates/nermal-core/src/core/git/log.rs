@@ -1848,7 +1848,8 @@ mod tests {
     fn scratch(name: &str) -> Option<Scratch> {
         // The pid keeps two concurrent `cargo test` runs off each other's
         // fixture, since the directory is wiped on the way in.
-        let dir = std::env::temp_dir().join(format!("nermal-scm-log-{name}-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("nermal-scm-log-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).ok()?;
         Some(Scratch(dir))

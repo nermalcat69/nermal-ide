@@ -2,7 +2,6 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::{Context as _, Result, anyhow, bail};
-use serde_json::json;
 use nermal_core::client::{ControlClient, PaneClient, PaneSession};
 use nermal_core::core::agent_hooks::{HookAgent, HookTarget, HooksState, hooks_state};
 use nermal_core::core::session::WorkspaceId;
@@ -11,6 +10,7 @@ use nermal_core::daemon::control::{
 };
 use nermal_core::daemon::protocol::{DaemonMsg, PaneInfo, PaneProcs, ShellSpec, WinSize};
 use nermal_core::daemon::router::RouteTarget;
+use serde_json::json;
 
 use super::{Backend, CaptureSegment, RunSpec};
 

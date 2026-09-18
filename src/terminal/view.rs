@@ -2071,8 +2071,10 @@ impl TerminalView {
                 match validated {
                     Ok((image, id)) => {
                         cx.write_to_clipboard(ClipboardItem::new_image(&image));
-                        view.terminal
-                            .write(nermal_core::core::clipboard::response(id.as_deref(), "DONE"));
+                        view.terminal.write(nermal_core::core::clipboard::response(
+                            id.as_deref(),
+                            "DONE",
+                        ));
                     }
                     Err(reason) => {
                         log::warn!("refusing remote clipboard image: {reason}");
@@ -10514,7 +10516,8 @@ mod gpui_tests {
     /// opened the local copy without a word about it.
     #[gpui::test]
     fn a_pane_whose_paths_are_elsewhere_does_not_link_local_files(cx: &mut TestAppContext) {
-        let file = std::env::temp_dir().join(format!("nermal-elsewhere-{}.txt", std::process::id()));
+        let file =
+            std::env::temp_dir().join(format!("nermal-elsewhere-{}.txt", std::process::id()));
         std::fs::write(&file, b"local").expect("create local file");
         let line = format!("open {} now\r\n", file.display());
 
@@ -12379,7 +12382,11 @@ mod gpui_tests {
                 };
                 view.on_key_down(&up, window, cx);
 
-                assert_eq!(view.cmd.text(), "", "nothing was typed into nermal's editor");
+                assert_eq!(
+                    view.cmd.text(),
+                    "",
+                    "nothing was typed into nermal's editor"
+                );
                 assert!(
                     view.history_nav.is_none(),
                     "Up never touched nermal's own history"

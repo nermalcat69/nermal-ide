@@ -2191,8 +2191,8 @@ mod render_idle_gpui_tests {
     use super::*;
     use crate::ui::app::{render_probe, test_window};
     use gpui::{Entity, TestAppContext, VisualTestContext};
-    use std::path::Path;
     use nermal_core::core::config::RightPanelTab;
+    use std::path::Path;
 
     const BUDGET: u64 = 200;
 
@@ -2251,7 +2251,10 @@ mod render_idle_gpui_tests {
 
     /// Drive frames until the graph has a page, because the query only goes out
     /// from `render`.
-    fn settle_graph(app: &Entity<NermalApp>, vcx: &mut VisualTestContext) -> Option<Arc<CommitPage>> {
+    fn settle_graph(
+        app: &Entity<NermalApp>,
+        vcx: &mut VisualTestContext,
+    ) -> Option<Arc<CommitPage>> {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
         loop {
             app.update_in(vcx, |_, _, cx| cx.notify());

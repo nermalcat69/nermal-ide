@@ -995,8 +995,8 @@ mod detail_gpui_tests {
     use crate::ui::app::{render_probe, test_window};
     use crate::ui::host_ops::HostId;
     use gpui::{Entity, TestAppContext, VisualTestContext};
-    use std::path::{Path, PathBuf};
     use nermal_core::core::config::RightPanelTab;
+    use std::path::{Path, PathBuf};
 
     fn scratch(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("nermal-detail-{name}-{}", std::process::id()));

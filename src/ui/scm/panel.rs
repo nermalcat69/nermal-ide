@@ -29,7 +29,7 @@ use nermal_core::core::git::status::{
 use crate::core::config::ScmPostCommit;
 use crate::terminal::git_data::status_of;
 use crate::terminal::git_diff::DiffSource;
-use crate::ui::app::{CONTENT_INSET, TILE_GLYPH_XS, TILE_SIZE_XS, NermalApp};
+use crate::ui::app::{CONTENT_INSET, NermalApp, TILE_GLYPH_XS, TILE_SIZE_XS};
 use crate::ui::host_ops::{HostId, SharedHost};
 use crate::ui::i18n::{L10nKey, t, t_fmt, t_plural};
 use crate::ui::right_panel::{

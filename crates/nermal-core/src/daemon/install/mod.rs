@@ -541,7 +541,9 @@ impl std::fmt::Display for InstallError {
             Self::Write { path, reason } => {
                 write!(f, "could not write {path} on the remote machine: {reason}")
             }
-            Self::Launch { reason } => write!(f, "the remote nermal-server did not start: {reason}"),
+            Self::Launch { reason } => {
+                write!(f, "the remote nermal-server did not start: {reason}")
+            }
             Self::NoServerToRestart { host, path } => write!(
                 f,
                 "{host} has no nermal-server at {path} for this build to start, so nothing was \

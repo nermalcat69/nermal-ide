@@ -21,7 +21,7 @@ use crate::core::config::{Config, RightPanelTab, SidebarGrouping};
 use crate::core::group_key::GroupKey;
 use crate::core::shells::DetectedShell;
 use crate::daemon::protocol::ShellSpec;
-use crate::ui::app::{SpawnWhere, TILE_GLYPH, TILE_SIZE, Tab, NermalApp, tile_trailing_inset};
+use crate::ui::app::{NermalApp, SpawnWhere, TILE_GLYPH, TILE_SIZE, Tab, tile_trailing_inset};
 use crate::ui::hints::tab_badge_label;
 use crate::ui::i18n::{L10nKey, t, t_fmt};
 use crate::ui::reorder::{self, Reorder, Surface};
@@ -821,17 +821,13 @@ impl NewTabMenu {
         }));
 
         let app = self.app.clone();
-        menu = menu
-            .item(PopupMenuItem::separator())
-            .item(
-                PopupMenuItem::new(t(L10nKey::TabMenuOpenFolder)).on_click(
-                    move |_, window, cx| {
-                        if let Some(app) = app.upgrade() {
-                            app.update(cx, |this, cx| this.open_folder(window, cx));
-                        }
-                    },
-                ),
-            );
+        menu = menu.item(PopupMenuItem::separator()).item(
+            PopupMenuItem::new(t(L10nKey::TabMenuOpenFolder)).on_click(move |_, window, cx| {
+                if let Some(app) = app.upgrade() {
+                    app.update(cx, |this, cx| this.open_folder(window, cx));
+                }
+            }),
+        );
 
         // The one place ⌥ is spelled out. Nothing else in the app teaches it,
         // and a modifier nobody is told about is a feature nobody has. No rule
@@ -2200,8 +2196,8 @@ impl NermalApp {
         // only way to open it back up once closed, and hiding it until a
         // pointer happened to be over the strip hid the one control that
         // undoes that.
-        let right_chrome =
-            (!panel_open || !cfg!(target_os = "macos")).then(|| self.window_chrome(true, window, cx));
+        let right_chrome = (!panel_open || !cfg!(target_os = "macos"))
+            .then(|| self.window_chrome(true, window, cx));
 
         h_flex()
             .id("tab-strip")
@@ -2572,7 +2568,10 @@ mod tests {
 
     #[test]
     fn short_title_truncates_deep_paths_to_trailing_segments() {
-        assert_eq!(short_title("user@host:~/repo/025/nermal"), "…/repo/025/nermal");
+        assert_eq!(
+            short_title("user@host:~/repo/025/nermal"),
+            "…/repo/025/nermal"
+        );
         assert_eq!(short_title("/usr/local/share/man"), "…/local/share/man");
         assert_eq!(short_title("a/b/c/d"), "…/b/c/d");
     }
@@ -2613,7 +2612,10 @@ mod tests {
         let (ts, font, size) = elide_setup(cx);
         let path = "~/nermal";
         let max = measure_text(&ts, &font, size, path) + 1.;
-        assert_eq!(elide_path_keep_tail(&ts, &font, size, path, max), "~/nermal");
+        assert_eq!(
+            elide_path_keep_tail(&ts, &font, size, path, max),
+            "~/nermal"
+        );
     }
 
     #[gpui::test]

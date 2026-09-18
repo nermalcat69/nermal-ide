@@ -13,7 +13,9 @@ use std::path::{Path, PathBuf};
 use gpui::{AnyElement, Context, Entity, Window, div, prelude::*, px, rems};
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{Input, InputEvent, InputState};
-use gpui_component::{ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _, h_flex, v_flex};
+use gpui_component::{
+    ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _, h_flex, v_flex,
+};
 
 use crate::ui::app::{CONTENT_INSET, NermalApp};
 use crate::ui::i18n::{L10nKey, t, t_fmt};
@@ -80,7 +82,12 @@ pub(crate) struct SearchPanelState {
 /// its own escaped regex, so case-sensitivity and whole-word both go through
 /// the same matcher instead of a separate substring path that could answer
 /// differently.
-fn build_pattern(query: &str, case_sensitive: bool, whole_word: bool, regex: bool) -> Option<regex::Regex> {
+fn build_pattern(
+    query: &str,
+    case_sensitive: bool,
+    whole_word: bool,
+    regex: bool,
+) -> Option<regex::Regex> {
     if query.is_empty() {
         return None;
     }
@@ -103,7 +110,11 @@ fn build_pattern(query: &str, case_sensitive: bool, whole_word: bool, regex: boo
 }
 
 impl NermalApp {
-    fn search_query_input(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Entity<InputState> {
+    fn search_query_input(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<InputState> {
         if let Some(input) = self.search_panel.query.clone() {
             return input;
         }
@@ -118,7 +129,11 @@ impl NermalApp {
         input
     }
 
-    fn search_replace_input(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Entity<InputState> {
+    fn search_replace_input(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<InputState> {
         if let Some(input) = self.search_panel.replace.clone() {
             return input;
         }
@@ -153,8 +168,16 @@ impl NermalApp {
             cx.notify();
             return;
         };
-        let roots: Vec<PathBuf> = self.code.as_ref().map(|c| c.roots.clone()).unwrap_or_default();
-        if roots.is_empty() {
+        let roots: Vec<PathBuf> = self
+            .code
+            .as_ref()
+            .map(|c| c.roots.clone())
+            .unwrap_or_default();
+        // `code.roots` follows the workspace's own host, which is not always
+        // this machine — the walk below reads straight off local disk, so a
+        // remote workspace's roots have to be held back rather than searched
+        // against the wrong filesystem.
+        if roots.is_empty() || !self.spawn_host(cx).is_local() {
             self.search_panel.results.clear();
             cx.notify();
             return;
@@ -212,7 +235,15 @@ impl NermalApp {
         ) else {
             return;
         };
-        let paths: Vec<PathBuf> = self.search_panel.results.iter().map(|f| f.path.clone()).collect();
+        if !self.spawn_host(cx).is_local() {
+            return;
+        }
+        let paths: Vec<PathBuf> = self
+            .search_panel
+            .results
+            .iter()
+            .map(|f| f.path.clone())
+            .collect();
         cx.spawn_in(window, async move |this, cx| {
             cx.background_spawn(async move {
                 for path in &paths {
@@ -231,36 +262,47 @@ impl NermalApp {
         .detach();
     }
 
-    pub(crate) fn render_panel_search(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+    pub(crate) fn render_panel_search(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let title = self.panel_title(t(L10nKey::PanelSearchTitle), None, None, window, cx);
         let query_input = self.search_query_input(window, cx);
         let replace_input = self.search_replace_input(window, cx);
 
-        let flag_tile = |label: &'static str, active: bool, tip: &'static str, cx: &Context<Self>| {
-            div()
-                .id(label)
-                .flex_none()
-                .px(px(5.))
-                .py(px(2.))
-                .rounded(px(4.))
-                .cursor_pointer()
-                .text_size(rems(META))
-                .when(active, |d| {
-                    d.bg(cx.theme().primary).text_color(cx.theme().primary_foreground)
-                })
-                .when(!active, |d| d.text_color(cx.theme().muted_foreground))
-                .child(label)
-                .tooltip(move |window, cx| {
-                    gpui_component::tooltip::Tooltip::new(tip).build(window, cx)
-                })
-        };
+        let flag_tile =
+            |label: &'static str, active: bool, tip: &'static str, cx: &Context<Self>| {
+                div()
+                    .id(label)
+                    .flex_none()
+                    .px(px(5.))
+                    .py(px(2.))
+                    .rounded(px(4.))
+                    .cursor_pointer()
+                    .text_size(rems(META))
+                    .when(active, |d| {
+                        d.bg(cx.theme().primary)
+                            .text_color(cx.theme().primary_foreground)
+                    })
+                    .when(!active, |d| d.text_color(cx.theme().muted_foreground))
+                    .child(label)
+                    .tooltip(move |window, cx| {
+                        gpui_component::tooltip::Tooltip::new(tip).build(window, cx)
+                    })
+            };
 
         let query_row = h_flex()
             .items_center()
             .gap(px(4.))
             .px(px(CONTENT_INSET))
             .py(px(4.))
-            .child(div().flex_1().min_w_0().child(Input::new(&query_input).small()))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .child(Input::new(&query_input).small()),
+            )
             .child(
                 flag_tile("Aa", self.search_panel.case_sensitive, "Match Case", cx).on_click(
                     cx.listener(|this, _, window, cx| {
@@ -286,11 +328,16 @@ impl NermalApp {
                 ),
             )
             .child(
-                flag_tile("M", self.search_panel.modified_only, "Uncommitted Changes Only", cx)
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.search_panel.modified_only = !this.search_panel.modified_only;
-                        this.run_search(window, cx);
-                    })),
+                flag_tile(
+                    "M",
+                    self.search_panel.modified_only,
+                    "Uncommitted Changes Only",
+                    cx,
+                )
+                .on_click(cx.listener(|this, _, window, cx| {
+                    this.search_panel.modified_only = !this.search_panel.modified_only;
+                    this.run_search(window, cx);
+                })),
             );
 
         let replace_row = h_flex()
@@ -309,7 +356,9 @@ impl NermalApp {
                     .label(t(L10nKey::PanelReplaceAll))
                     .small()
                     .disabled(self.search_panel.results.is_empty())
-                    .on_click(cx.listener(|this, _, window, cx| this.search_replace_all(window, cx))),
+                    .on_click(
+                        cx.listener(|this, _, window, cx| this.search_replace_all(window, cx)),
+                    ),
             );
 
         let summary = div()
@@ -348,45 +397,48 @@ impl NermalApp {
                 .unwrap_or_else(|| file.path.display().to_string());
             let collapsed = self.search_panel.collapsed.contains(&file.path);
             let path_for_toggle = file.path.clone();
-            list = list.child(
-                h_flex()
-                    .id(("search-file", fi))
-                    .cursor_pointer()
-                    .items_center()
-                    .gap(px(6.))
-                    .px(px(ROW_INSET))
-                    .py(px(3.))
-                    .rounded(px(4.))
-                    .hover(|s| s.bg(gpui::rgb(sf.hover)))
-                    .child(
-                        Icon::new(if collapsed {
-                            IconName::ChevronRight
-                        } else {
-                            IconName::ChevronDown
-                        })
-                        .size(px(11.))
-                        .text_color(cx.theme().muted_foreground),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .truncate()
-                            .text_size(rems(TEXT))
-                            .font_weight(gpui::FontWeight::MEDIUM)
-                            .when(file.git_status.is_some(), |d| d.text_color(cx.theme().success))
-                            .child(name),
-                    )
-                    .children(file.git_status.map(|letter| {
-                        git_badge(&letter.to_string(), cx.theme().success, &mono)
-                    }))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        if !this.search_panel.collapsed.remove(&path_for_toggle) {
-                            this.search_panel.collapsed.insert(path_for_toggle.clone());
-                        }
-                        cx.notify();
-                    })),
-            );
+            list =
+                list.child(
+                    h_flex()
+                        .id(("search-file", fi))
+                        .cursor_pointer()
+                        .items_center()
+                        .gap(px(6.))
+                        .px(px(ROW_INSET))
+                        .py(px(3.))
+                        .rounded(px(4.))
+                        .hover(|s| s.bg(gpui::rgb(sf.hover)))
+                        .child(
+                            Icon::new(if collapsed {
+                                IconName::ChevronRight
+                            } else {
+                                IconName::ChevronDown
+                            })
+                            .size(px(11.))
+                            .text_color(cx.theme().muted_foreground),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .truncate()
+                                .text_size(rems(TEXT))
+                                .font_weight(gpui::FontWeight::MEDIUM)
+                                .when(file.git_status.is_some(), |d| {
+                                    d.text_color(cx.theme().success)
+                                })
+                                .child(name),
+                        )
+                        .children(file.git_status.map(|letter| {
+                            git_badge(&letter.to_string(), cx.theme().success, &mono)
+                        }))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            if !this.search_panel.collapsed.remove(&path_for_toggle) {
+                                this.search_panel.collapsed.insert(path_for_toggle.clone());
+                            }
+                            cx.notify();
+                        })),
+                );
             if collapsed {
                 continue;
             }
@@ -423,9 +475,11 @@ impl NermalApp {
                     cursor = end;
                 }
                 if cursor < m.text.len() {
-                    text_row = text_row.child(div().truncate().child(
-                        m.text.get(cursor..).unwrap_or_default().to_string(),
-                    ));
+                    text_row = text_row.child(
+                        div()
+                            .truncate()
+                            .child(m.text.get(cursor..).unwrap_or_default().to_string()),
+                    );
                 }
                 let _ = trimmed;
                 list = list.child(
@@ -517,7 +571,11 @@ fn git_status_map(root: &Path) -> std::collections::HashMap<PathBuf, char> {
 /// The walk itself: gitignore-aware, skipping anything that does not look
 /// like text, capped at [`MAX_MATCHES`] total so one huge match never turns
 /// the search into a hang.
-fn walk_and_search(roots: &[PathBuf], pattern: &regex::Regex, modified_only: bool) -> Vec<SearchFileResult> {
+fn walk_and_search(
+    roots: &[PathBuf],
+    pattern: &regex::Regex,
+    modified_only: bool,
+) -> Vec<SearchFileResult> {
     let mut results = Vec::new();
     let mut total = 0usize;
     'roots: for root in roots {
@@ -547,8 +605,10 @@ fn walk_and_search(roots: &[PathBuf], pattern: &regex::Regex, modified_only: boo
             };
             let mut matches = Vec::new();
             for (ix, line) in content.lines().enumerate() {
-                let ranges: Vec<(usize, usize)> =
-                    pattern.find_iter(line).map(|m| (m.start(), m.end())).collect();
+                let ranges: Vec<(usize, usize)> = pattern
+                    .find_iter(line)
+                    .map(|m| (m.start(), m.end()))
+                    .collect();
                 if !ranges.is_empty() {
                     matches.push(SearchMatch {
                         line: (ix + 1) as u32,

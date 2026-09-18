@@ -810,8 +810,7 @@ impl NermalApp {
         // what the toggle has to flip. The raw `code.visible` this used to
         // read stayed `false` for an untouched tab and made the first press
         // "open" a dock the reader was already looking at.
-        let showing_code =
-            self.document_front() == Some(crate::ui::app::OverlayTop::Code);
+        let showing_code = self.document_front() == Some(crate::ui::app::OverlayTop::Code);
         let Some(tab) = self.tabs.get_mut(self.active) else {
             return;
         };
@@ -1017,7 +1016,8 @@ impl NermalApp {
     }
 
     fn editor_file_mut(&mut self, id: gpui::EntityId) -> Option<&mut OpenFile> {
-        self.all_open_files_mut().find(|f| f.input.entity_id() == id)
+        self.all_open_files_mut()
+            .find(|f| f.input.entity_id() == id)
     }
 
     fn editor_file_position(&self, id: gpui::EntityId) -> Option<usize> {
@@ -1527,9 +1527,7 @@ impl NermalApp {
                         .custom(crate::ui::tab_strip::chrome_tile_variant(cx))
                         .xsmall()
                         .on_click(cx.listener(|this, _, window, cx| {
-                            let on = !cx
-                                .global::<crate::core::config::Config>()
-                                .editor_auto_save;
+                            let on = !cx.global::<crate::core::config::Config>().editor_auto_save;
                             this.update_config(cx, |cfg| cfg.editor_auto_save = on);
                             if on {
                                 let ids: Vec<gpui::EntityId> = this

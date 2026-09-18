@@ -503,7 +503,10 @@ pub enum PaneCmd {
 
     #[command(about = "Close panes; their shells are hung up")]
     Close {
-        #[arg(value_name = "%PANE", help = "Panes to close; defaults to $nermal_PANE")]
+        #[arg(
+            value_name = "%PANE",
+            help = "Panes to close; defaults to $nermal_PANE"
+        )]
         targets: Vec<String>,
 
         // `pane ls --all` has been able to *show* the panes an interrupted
@@ -601,7 +604,10 @@ mod tests {
 
     #[test]
     fn every_top_level_verb_parses() {
-        assert!(matches!(parse(&["nermal", "ls"]).command, Some(Command::Ls)));
+        assert!(matches!(
+            parse(&["nermal", "ls"]).command,
+            Some(Command::Ls)
+        ));
         assert!(matches!(
             parse(&["nermal", "new"]).command,
             Some(Command::New { path: None, .. })
@@ -910,7 +916,8 @@ mod tests {
 
     #[test]
     fn capture_tail_takes_a_count_and_refuses_zero() {
-        let Some(Command::Capture(args)) = parse(&["nermal", "capture", "%3", "--tail", "5"]).command
+        let Some(Command::Capture(args)) =
+            parse(&["nermal", "capture", "%3", "--tail", "5"]).command
         else {
             panic!("capture did not parse");
         };
