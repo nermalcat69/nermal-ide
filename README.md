@@ -1,4 +1,4 @@
-# nermal
+# Nermal
 
 A terminal workbench with a built-in editor: persistent sessions, remote work, and AI agent support.
 
