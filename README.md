@@ -6,6 +6,8 @@ Pure Rust · GPU rendering on Zed's gpui · VT core from Alacritty
 
 ## Why
 
+Well i made this for my own usecase but if you have any feature request, feel free to drop an issue.
+
 A background server owns your shells and panes, not the window.
 
 - **Persistent sessions** — quit or reboot; shells and agent sessions keep running
