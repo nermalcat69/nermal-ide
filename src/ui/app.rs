@@ -5326,7 +5326,12 @@ impl NermalApp {
         if self.tabs.get(index).is_none() {
             return;
         }
-        let current = self.tab_label(&self.tabs[index], index, Some(&*window), cx);
+        // Seeded from the tab's own name, not the label the strip shows —
+        // the strip falls back through OSC title, cwd, and process name when
+        // there is no explicit name yet, and copying that fallback into the
+        // box read as "the terminal's name" is a truncated cwd path rather
+        // than the empty box a not-yet-named tab actually has.
+        let current = self.tabs[index].name.clone().unwrap_or_default();
         let prefill = current.to_string();
         let input = Self::rename_box(current, window, cx);
         let subs = vec![cx.subscribe_in(
@@ -10844,6 +10849,9 @@ mod rename_gpui_tests {
     #[gpui::test]
     fn a_rename_box_opens_with_the_caret_after_the_name(cx: &mut TestAppContext) {
         let (app, mut vcx, _streams) = harness_with_tabs(cx, 1);
+        app.update(&mut vcx, |app, _cx| {
+            app.tabs[0].name = Some("scratch".to_string());
+        });
 
         app.update_in(&mut vcx, |app, window, cx| app.start_rename(0, window, cx));
         vcx.background_executor.run_until_parked();
@@ -10857,13 +10865,37 @@ mod rename_gpui_tests {
                 .clone();
             let state = input.read(cx);
             let value = state.value().to_string();
-            assert!(!value.is_empty(), "the box starts on the current name");
+            assert_eq!(value, "scratch", "the box starts on the tab's own name");
             let end = value.len();
             assert_eq!(
                 state.selected_range(),
                 end..end,
                 "typing has to continue {value:?}, not land in front of it"
             );
+        });
+    }
+
+    #[gpui::test]
+    fn a_rename_box_starts_empty_when_the_tab_has_no_name_of_its_own(cx: &mut TestAppContext) {
+        // The box used to be seeded with the strip's own displayed label,
+        // which falls back through the OSC title, then the cwd, then the
+        // process name for a tab with no explicit name — so a fresh
+        // terminal's rename box opened on an elided cwd path rather than
+        // empty.
+        let (app, mut vcx, _streams) = harness_with_tabs(cx, 1);
+
+        app.update_in(&mut vcx, |app, window, cx| app.start_rename(0, window, cx));
+        vcx.background_executor.run_until_parked();
+
+        app.update(&mut vcx, |app, cx| {
+            let input = app
+                .renaming
+                .as_ref()
+                .expect("the rename box is up")
+                .input
+                .clone();
+            let value = input.read(cx).value().to_string();
+            assert_eq!(value, "", "an unnamed tab's rename box starts empty");
         });
     }
     #[gpui::test]
