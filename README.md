@@ -26,9 +26,16 @@ Native builds for macOS, Windows, and Linux on [**Releases**](https://github.com
 
 macOS builds aren't notarized yet, so Gatekeeper will refuse to open `Nermal.app` the first time. Clear the quarantine flag once after installing:
 
+Try opening the app and it may prompt you that this application has some issue.
+
+You can go to settings and then privacy and allow open anyway for this application.
+
+or you can do this in your terminal if the solution above doesn't work
+
 ```sh
 xattr -dr com.apple.quarantine /Applications/Nermal.app
 ```
+
 
 ## Documentation
 
