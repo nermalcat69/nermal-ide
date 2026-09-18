@@ -71,6 +71,16 @@ impl NermalApp {
         cx.notify();
     }
 
+    /// Show or hide the commit message box, reached from the Source Control
+    /// tab's own right-click menu. The history graph has no matching switch —
+    /// see `ScmPanelState::commit_box_visible`.
+    pub(crate) fn scm_toggle_commit_box(&mut self, cx: &mut Context<Self>) {
+        let next = !self.scm.commit_box_visible;
+        self.scm.commit_box_visible = next;
+        self.update_config(cx, |cfg| cfg.scm_commit_box_visible = next);
+        cx.notify();
+    }
+
     /// Flip the diff overlay between side-by-side and unified.
     ///
     /// Global rather than per-overlay, matching `diffEditor.renderSideBySide`:

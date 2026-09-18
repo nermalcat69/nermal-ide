@@ -27,7 +27,7 @@ use crate::core::config::{
     Config, DOCUMENT_RATIO_MAX, DOCUMENT_RATIO_MIN, DOCUMENT_RATIO_STOPS, DocumentLayout,
 };
 use crate::ui::app::{
-    DOCUMENT_MIN_W, EDGE_CLEARANCE, NermalApp, OverlayTop, TERMINAL_MIN_H, document_column_px,
+    DOCUMENT_MIN_H, EDGE_CLEARANCE, NermalApp, OverlayTop, TERMINAL_MIN_H, document_column_px,
 };
 use crate::ui::i18n::{L10nKey, t};
 use crate::ui::right_panel::RESIZE_HANDLE_WIDTH;
@@ -443,19 +443,19 @@ impl NermalApp {
     }
 }
 
-/// The ratio a divider dropped `raw` points from the right edge of a `body`
-/// wide area settles on.
+/// The ratio a divider dropped `raw` points down from the document column's
+/// own top edge settles on, out of the shared `body` height.
 ///
 /// Two clamps, and both are load-bearing. The pixel one keeps the terminal and
-/// the document each above their floor, and is what binds on a narrow window.
+/// the document each above their floor, and is what binds on a short window.
 /// The ratio one is the band the *file* keeps — `Config::sanitize` holds
 /// `document_ratio` to it, so a drag that wrote outside it would be moved on
-/// the next launch, and a column dropped against the edge of a wide window
+/// the next launch, and a column dropped against the edge of a tall window
 /// would reopen hundreds of points from where it was left.
 pub(crate) fn dragged_ratio(body: f32, raw: f32) -> f32 {
     let terminal_floor = TERMINAL_MIN_H + EDGE_CLEARANCE;
-    let w = raw.clamp(DOCUMENT_MIN_W, (body - terminal_floor).max(DOCUMENT_MIN_W));
-    (w / body).clamp(DOCUMENT_RATIO_MIN, DOCUMENT_RATIO_MAX)
+    let h = raw.clamp(DOCUMENT_MIN_H, (body - terminal_floor).max(DOCUMENT_MIN_H));
+    (h / body).clamp(DOCUMENT_RATIO_MIN, DOCUMENT_RATIO_MAX)
 }
 
 /// The width the divider's double-click moves to from `current`: the one after
@@ -477,7 +477,7 @@ mod tests {
         DOCUMENT_RATIO_HALF, DOCUMENT_RATIO_MAX, DOCUMENT_RATIO_MIN, DOCUMENT_RATIO_THIRD,
         DOCUMENT_RATIO_TWO_THIRDS,
     };
-    use crate::ui::app::{DOCUMENT_MIN_W, EDGE_CLEARANCE, TERMINAL_MIN_H, document_column_px};
+    use crate::ui::app::{DOCUMENT_MIN_H, EDGE_CLEARANCE, TERMINAL_MIN_H, document_column_px};
 
     /// The terminal's floor, as `document_column_px` enforces it: a small
     /// nominal height plus the clearance always left above the bottom edge.
@@ -492,7 +492,7 @@ mod tests {
     #[test]
     fn a_dragged_width_is_one_the_config_can_keep() {
         for body in [640., 900., 1440., 2560., 5120.] {
-            for raw in [-500., 0., 1., DOCUMENT_MIN_W, body / 2., body, body + 900.] {
+            for raw in [-500., 0., 1., DOCUMENT_MIN_H, body / 2., body, body + 900.] {
                 let r = dragged_ratio(body, raw);
                 assert!(
                     (DOCUMENT_RATIO_MIN..=DOCUMENT_RATIO_MAX).contains(&r),
@@ -502,7 +502,7 @@ mod tests {
                 // whole budget exists for.
                 let drawn = document_column_px(body, r).expect("a body that seats both");
                 assert!(body - drawn >= TERMINAL_FLOOR - f32::EPSILON);
-                assert!(drawn >= DOCUMENT_MIN_W - f32::EPSILON);
+                assert!(drawn >= DOCUMENT_MIN_H - f32::EPSILON);
             }
         }
     }
@@ -557,7 +557,7 @@ mod tests {
     #[test]
     fn a_thin_share_still_gets_the_documents_floor() {
         let body = 700.;
-        assert_eq!(document_column_px(body, 0.2), Some(DOCUMENT_MIN_W));
+        assert_eq!(document_column_px(body, 0.05), Some(DOCUMENT_MIN_H));
     }
 
     /// Below the width where both fit there is no docked layout to draw, and
@@ -565,9 +565,9 @@ mod tests {
     /// exact so that widening by a point re-docks.
     #[test]
     fn a_window_too_narrow_for_both_has_no_docked_width() {
-        let floor = TERMINAL_FLOOR + DOCUMENT_MIN_W;
+        let floor = TERMINAL_FLOOR + DOCUMENT_MIN_H;
         assert_eq!(document_column_px(floor - 1., 0.5), None);
-        assert_eq!(document_column_px(floor, 0.5), Some(DOCUMENT_MIN_W));
+        assert_eq!(document_column_px(floor, 0.5), Some(DOCUMENT_MIN_H));
         assert_eq!(document_column_px(f32::NAN, 0.5), None);
     }
 
@@ -585,7 +585,7 @@ mod tests {
                     "body {body} ratio {ratio} left the terminal {}",
                     body - doc
                 );
-                assert!(doc >= DOCUMENT_MIN_W - f32::EPSILON);
+                assert!(doc >= DOCUMENT_MIN_H - f32::EPSILON);
             }
         }
     }
@@ -872,8 +872,10 @@ mod gpui_tests {
     #[gpui::test]
     fn a_short_window_falls_back_without_saving_it(cx: &mut TestAppContext) {
         let (app, mut vcx) = window(cx, 1440.);
-        // Docked by default — nothing to toggle on.
-        vcx.simulate_resize(size(px(1440.), px(300.)));
+        // Docked by default — nothing to toggle on. Short enough that the
+        // body has no room for the document's own floor (`DOCUMENT_MIN_H`)
+        // plus the terminal's, once the title bar comes off the top.
+        vcx.simulate_resize(size(px(1440.), px(100.)));
         vcx.run_until_parked();
 
         assert_eq!(dock_px(&app, &mut vcx), None, "no room for both");

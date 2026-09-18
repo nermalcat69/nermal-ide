@@ -145,6 +145,14 @@ notify = "8"
 # default features off drops the text/font machinery our icon SVGs don't use.
 resvg = { version = "0.47", default-features = false }
 
+# Discord Rich Presence (`core::discord_presence`). Speaks Discord's local IPC
+# protocol directly — a Unix socket on macOS/Linux, a named pipe on Windows —
+# so it works the same on every platform without shelling out to anything.
+# Best-effort: nothing here fails a launch or a build if Discord is not
+# installed or not running: connecting and every update are fire-and-forget
+# from a background thread, and a dropped connection is retried, not fatal.
+discord-rich-presence = "1.1.0"
+
 # The tray icon itself, macOS + Windows: tauri's `tray-icon` (NSStatusItem /
 # Shell_NotifyIcon via objc2 / windows-sys, both already in the tree). Linux is
 # deliberately NOT on this crate — its Linux backend needs GTK + libappindicator,

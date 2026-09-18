@@ -41,6 +41,33 @@ fn move_to_sidebar_button(
         .into_any_element()
 }
 
+/// The "pop out to its own window" button next to [`move_to_sidebar_button`].
+/// Closing that window is the way back — see `NermalApp::pop_out_terminal`.
+fn pop_out_button(
+    app: &gpui::WeakEntity<crate::ui::app::NermalApp>,
+    pane_id: u64,
+) -> gpui::AnyElement {
+    let app = app.clone();
+    div()
+        .occlude()
+        .absolute()
+        .top(px(6.))
+        .right(px(32.))
+        .child(
+            crate::ui::tab_strip::hit_target(
+                Button::new(("pane-pop-out", pane_id as usize))
+                    .icon(IconName::ExternalLink)
+                    .ghost()
+                    .xsmall(),
+            )
+            .tooltip(t(L10nKey::PanePopOut))
+            .on_click(move |_, window, cx| {
+                let _ = app.update(cx, |this, cx| this.pop_out_terminal(pane_id, window, cx));
+            }),
+        )
+        .into_any_element()
+}
+
 /// What a leaf shows in place of its terminal once that terminal is docked
 /// in the right panel — see [`move_to_sidebar_button`].
 fn docked_elsewhere_placeholder(cx: &App) -> gpui::AnyElement {
@@ -1142,6 +1169,7 @@ impl Pane<PaneSlot> {
                                 t.update(cx, |v, _cx| v.set_dim(dim));
                                 d.child(t.clone())
                                     .child(move_to_sidebar_button(&chrome.app, pane_id))
+                                    .child(pop_out_button(&chrome.app, pane_id))
                             }
                         }
                         PaneSlot::Connecting(p) => {

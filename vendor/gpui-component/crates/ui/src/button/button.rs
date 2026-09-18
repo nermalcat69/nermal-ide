@@ -1,17 +1,17 @@
 use std::rc::Rc;
 
 use crate::{
-    ActiveTheme, Colorize as _, Disableable, FocusableExt as _, Icon, IconName, Selectable,
-    Sizable, Size, StyleSized, StyledExt,
     button::ButtonIcon,
     h_flex,
     tooltip::{ManagedTooltipExt as _, Tooltip},
+    ActiveTheme, Colorize as _, Disableable, FocusableExt as _, Icon, IconName, Selectable,
+    Sizable, Size, StyleSized, StyledExt,
 };
 use gpui::{
-    AnyElement, App, Background, ClickEvent, Corners, Div, Edges, ElementId, Hsla,
-    InteractiveElement, Interactivity, IntoElement, MouseButton, ParentElement, Pixels, Render,
-    RenderOnce, SharedString, Stateful, StatefulInteractiveElement as _, StyleRefinement, Styled,
-    Window, div, prelude::FluentBuilder as _, px, relative, transparent_white,
+    div, prelude::FluentBuilder as _, px, relative, transparent_white, AnyElement, App, Background,
+    ClickEvent, Corners, Div, Edges, ElementId, Hsla, InteractiveElement, Interactivity,
+    IntoElement, MouseButton, ParentElement, Pixels, Render, RenderOnce, SharedString, Stateful,
+    StatefulInteractiveElement as _, StyleRefinement, Styled, Window,
 };
 
 #[derive(Default, Clone, Copy)]
@@ -485,13 +485,12 @@ impl RenderOnce for Button {
                         .tab_stop(self.tab_stop),
                 )
             })
-            .cursor_default()
             .flex()
             .flex_shrink_0()
             .items_center()
             .justify_center()
-            .cursor_default()
-            .when(self.variant.is_link(), |this| this.cursor_pointer())
+            .when(self.disabled, |this| this.cursor_default())
+            .when(!self.disabled, |this| this.cursor_pointer())
             .when(cx.theme().shadow && normal_style.shadow, |this| {
                 this.shadow_xs()
             })

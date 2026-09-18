@@ -90,6 +90,12 @@ pub(crate) struct ScmPanelState {
     /// Whether the next commit rewrites HEAD. Armed from the commit dropdown
     /// rather than a checkbox row — 260px does not have a row to spare.
     pub(crate) amend: bool,
+    /// Mirrors `Config::scm_commit_box_visible`, which starts `true`. Hiding
+    /// it (via the Source Control tab's own right-click menu) only takes the
+    /// message box and its Commit/Amend/Push row off screen — the history
+    /// graph below has no matching switch, since there is no working set of
+    /// commits to lose the way there is a message that never got sent.
+    pub(crate) commit_box_visible: bool,
     /// Groups the user folded shut, and the ones whose fold state they have
     /// set at all. Both are needed: a group nobody has touched follows the
     /// default for its size (a thousand untracked files start folded), and

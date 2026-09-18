@@ -6563,8 +6563,14 @@ impl NermalApp {
             NewTabPosition::End => 1,
         };
         let restore_session = cfg.restore_session;
+        let new_workspace_same_window = cfg.new_workspace_same_window;
         let remember_window_size = cfg.remember_window_size;
         let show_tray_icon = cfg.show_tray_icon;
+        let discord_rich_presence_enabled = cfg.discord_rich_presence_enabled;
+        let discord_activity_idx = match cfg.discord_rich_presence_activity {
+            crate::core::config::DiscordPresenceActivity::Editing => 0,
+            crate::core::config::DiscordPresenceActivity::Cooking => 1,
+        };
         let tab_bar_idx = match cfg.tab_bar_position {
             TabBarPosition::Top => 0,
             TabBarPosition::Left => 1,
@@ -6629,6 +6635,12 @@ impl NermalApp {
             .checked(restore_session)
             .on_click(cx.listener(|this, on: &bool, _w, cx| this.set_restore_session(*on, cx)))
             .into_any_element();
+        let new_workspace_switch = crate::ui::theme::switch("wt-new-workspace-same-window", cx)
+            .checked(new_workspace_same_window)
+            .on_click(
+                cx.listener(|this, on: &bool, _w, cx| this.set_new_workspace_same_window(*on, cx)),
+            )
+            .into_any_element();
         let remember_window_switch = crate::ui::theme::switch("wt-remember-window", cx)
             .checked(remember_window_size)
             .on_click(cx.listener(|this, on: &bool, _w, cx| this.set_remember_window_size(*on, cx)))
@@ -6637,6 +6649,28 @@ impl NermalApp {
             .checked(show_tray_icon)
             .on_click(cx.listener(|this, on: &bool, _w, cx| this.set_show_tray_icon(*on, cx)))
             .into_any_element();
+        let discord_switch = crate::ui::theme::switch("wt-discord-presence", cx)
+            .checked(discord_rich_presence_enabled)
+            .on_click(cx.listener(|this, on: &bool, _w, cx| {
+                this.set_discord_rich_presence_enabled(*on, cx)
+            }))
+            .into_any_element();
+        let discord_activity_radio = self.segmented(
+            "wt-discord-activity",
+            &[
+                t(L10nKey::SettingsDiscordActivityEditing),
+                t(L10nKey::SettingsDiscordActivityCooking),
+            ],
+            discord_activity_idx,
+            cx,
+            |this, ix, _w, cx| {
+                let activity = match ix {
+                    0 => crate::core::config::DiscordPresenceActivity::Editing,
+                    _ => crate::core::config::DiscordPresenceActivity::Cooking,
+                };
+                this.set_discord_rich_presence_activity(activity, cx);
+            },
+        );
         let startup_radio = self.segmented(
             "wt-startup",
             &[
@@ -6745,9 +6779,27 @@ impl NermalApp {
                 cx,
             ))
             .child(self.settings_row(
+                t(L10nKey::SettingsNewWorkspaceSameWindow),
+                t(L10nKey::SettingsNewWorkspaceSameWindowDesc),
+                new_workspace_switch,
+                cx,
+            ))
+            .child(self.settings_row(
                 t(L10nKey::SettingsShowTrayIcon),
                 t(L10nKey::SettingsShowTrayIconDesc),
                 tray_switch,
+                cx,
+            ))
+            .child(self.settings_row(
+                t(L10nKey::SettingsDiscordPresence),
+                t(L10nKey::SettingsDiscordPresenceDesc),
+                discord_switch,
+                cx,
+            ))
+            .child(self.settings_row(
+                t(L10nKey::SettingsDiscordActivity),
+                t(L10nKey::SettingsDiscordActivityDesc),
+                discord_activity_radio,
                 cx,
             ))
             .child(self.section_rule(cx))

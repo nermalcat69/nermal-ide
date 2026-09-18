@@ -260,13 +260,18 @@ impl NermalApp {
         let branch = self.scm_branch_row(&repo, &status, cx);
         let naming = self.scm_new_branch_row(&repo, cx);
         let switching = self.scm_checkout_branch_row(&repo, cx);
-        let commit = self.scm_commit_box(&repo, &status, window, cx);
-        let buttons = self.scm_commit_buttons(&repo, &status, cx);
         let mut pinned = vec![branch];
         pinned.extend(naming);
         pinned.extend(switching);
-        pinned.push(commit);
-        pinned.push(buttons);
+        // Hidden via the tab's own right-click menu — see
+        // `ScmPanelState::commit_box_visible`. The history graph below is
+        // unaffected either way.
+        if self.scm.commit_box_visible {
+            let commit = self.scm_commit_box(&repo, &status, window, cx);
+            let buttons = self.scm_commit_buttons(&repo, &status, cx);
+            pinned.push(commit);
+            pinned.push(buttons);
+        }
         // A commit's detail replaces the working tree's, so the two can never
         // be on screen claiming to be the same thing.
         let detail = self.scm.detail.clone();
@@ -1411,6 +1416,18 @@ impl NermalApp {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let count = entries.len();
+        // Same half each row's own chip reads (see `scm_row_stat`), summed;
+        // untracked and binary files have no counts and add nothing.
+        let (mut added, mut removed) = (0u32, 0u32);
+        for e in entries {
+            let (a, r) = if group == ScmGroup::Staged {
+                (e.staged_added, e.staged_removed)
+            } else {
+                (e.unstaged_added, e.unstaged_removed)
+            };
+            added = added.saturating_add(a.unwrap_or(0));
+            removed = removed.saturating_add(r.unwrap_or(0));
+        }
         let sf = cx.global::<crate::ui::presets::Surfaces>().sidebar;
         let mono = cx.theme().mono_font_family.clone();
         let id = SharedString::from(format!("scm-group-{group:?}"));
@@ -1457,6 +1474,12 @@ impl NermalApp {
                     .text_color(cx.theme().muted_foreground)
                     .child(t(group_label(group)).to_uppercase()),
             )
+            .child(crate::ui::right_panel::diff_stat_chip(
+                Some(added),
+                Some(removed),
+                &mono,
+                cx,
+            ))
             .child(
                 div()
                     .flex_none()

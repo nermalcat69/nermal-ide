@@ -481,8 +481,16 @@ l10n_keys! {
     SettingsRememberWindowSizeDesc,
     SettingsRestoreLastLayout,
     SettingsRestoreLastLayoutDesc,
+    SettingsNewWorkspaceSameWindow,
+    SettingsNewWorkspaceSameWindowDesc,
     SettingsShowTrayIcon,
     SettingsShowTrayIconDesc,
+    SettingsDiscordPresence,
+    SettingsDiscordPresenceDesc,
+    SettingsDiscordActivity,
+    SettingsDiscordActivityDesc,
+    SettingsDiscordActivityEditing,
+    SettingsDiscordActivityCooking,
     SettingsTabs,
     SettingsNewTabPosition,
     SettingsNewTabPositionDesc,
@@ -808,6 +816,7 @@ l10n_keys! {
     PanelAgentsNewInstance,
     PanelInstanceUnnamed,
     PaneMoveToSidebar,
+    PanePopOut,
     PaneMovedToSidebar,
     PaneMoveBackToMain,
     PaneShowHere,
@@ -843,6 +852,7 @@ l10n_keys! {
     PanelKillProcessConfirm,
     PanelNoAgents,
     PanelNoAgentsHint,
+    PanelOtherWorkspaces,
     TerminalPanelEmpty,
     TerminalPanelEmptyHint,
     PanelOpenIssue,
@@ -906,6 +916,8 @@ l10n_keys! {
     ScmUnstageAll,
     ScmDiscard,
     ScmAddToGitignore,
+    ScmHideCommitBox,
+    ScmShowCommitBox,
     ScmDiscardAll,
     ScmDiscardConfirm,
     ScmOpenConflict,
@@ -1655,6 +1667,9 @@ mod tests {
             L10nKey::SettingsAgentQwenCode,
             L10nKey::SettingsAgentQoderCLI,
             L10nKey::SettingsAgentCrush,
+            // Discord's own product name for the feature — not a description
+            // anyone translates, the way "Slack" or "GitHub" is not.
+            L10nKey::SettingsDiscordPresence,
             // Windows names its backdrop materials, and Japanese Windows keeps
             // those names in Latin script — so does this list. Chinese does
             // translate them (云母 / 亚克力), which is what Microsoft's own

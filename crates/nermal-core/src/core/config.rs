@@ -231,6 +231,18 @@ pub struct Config {
     /// impression than one they asked for.
     #[serde(default)]
     pub scm_graph_expanded: bool,
+    /// Whether the commit message box (and its Commit/Amend/Push row) shows
+    /// above the changes list. Starts `true` — hiding it is an opt-out for
+    /// someone who commits from the terminal and only wants the panel for
+    /// diffs and history, not the norm.
+    #[serde(default = "default_true")]
+    pub scm_commit_box_visible: bool,
+    /// Off by default: showing what you're doing to everyone on Discord is
+    /// an opt-in, not a thing a fresh install starts broadcasting.
+    #[serde(default)]
+    pub discord_rich_presence_enabled: bool,
+    #[serde(default, deserialize_with = "de_lenient")]
+    pub discord_rich_presence_activity: DiscordPresenceActivity,
     #[serde(default, deserialize_with = "de_lenient")]
     pub sidebar_grouping: SidebarGrouping,
     /// Which sidebar groups are folded shut, by group key: the repo root the
@@ -283,6 +295,14 @@ pub struct Config {
     pub notify_threshold_secs: u64,
     #[serde(default = "default_true")]
     pub restore_session: bool,
+    /// Whether "New Workspace" swaps the current window to the new workspace
+    /// in place, the way the switcher palette's own "Open Here" already does,
+    /// rather than opening a second OS window for it. Off by default: opening
+    /// a window per workspace is what every earlier session of nermal has
+    /// done, and changing that under someone who never asked for it would
+    /// look like a missing window, not a feature.
+    #[serde(default)]
+    pub new_workspace_same_window: bool,
     #[serde(default = "default_true")]
     pub show_tray_icon: bool,
     #[serde(default, deserialize_with = "de_lenient")]
@@ -653,6 +673,9 @@ impl Default for Config {
             document_ratio: default_document_ratio(),
             editor_auto_save: false,
             scm_graph_expanded: false,
+            scm_commit_box_visible: true,
+            discord_rich_presence_enabled: false,
+            discord_rich_presence_activity: DiscordPresenceActivity::Editing,
             sidebar_grouping: SidebarGrouping::Repo,
             sidebar_collapsed_groups: Vec::new(),
             sidebar_diff_preview: true,
@@ -664,6 +687,7 @@ impl Default for Config {
             gui_language: default_gui_language(),
             notify_threshold_secs: default_notify_threshold_secs(),
             restore_session: true,
+            new_workspace_same_window: false,
             show_tray_icon: true,
             bell: BellMode::Visual,
             prompt_editor: true,
@@ -1139,6 +1163,17 @@ pub enum RightPanelTab {
     Network,
 }
 
+/// The verb Discord Rich Presence shows for whatever nermal is doing —
+/// picked in Settings, since "editing" and "cooking" read as two different
+/// moods for the same activity rather than one being more correct.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DiscordPresenceActivity {
+    #[default]
+    Editing,
+    Cooking,
+}
+
 /// What opens when a file link in the grid is clicked.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -1210,7 +1245,7 @@ fn default_document_ratio() -> f32 {
 /// against the terminal's floor as well, which is the tighter limit on a narrow
 /// window; on a wide one this band is, and both ends of it have to be reachable
 /// and keepable.
-pub const DOCUMENT_RATIO_MIN: f32 = 0.2;
+pub const DOCUMENT_RATIO_MIN: f32 = 0.05;
 pub const DOCUMENT_RATIO_MAX: f32 = 0.8;
 
 /// The named shares of the terminal column a document column can be snapped to,
@@ -1761,7 +1796,7 @@ mod tests {
         for stop in DOCUMENT_RATIO_STOPS {
             assert_eq!(clamp(stop), stop, "a named width must survive the file");
         }
-        assert_eq!(clamp(0.05), DOCUMENT_RATIO_MIN);
+        assert_eq!(clamp(0.01), DOCUMENT_RATIO_MIN);
         assert_eq!(clamp(0.95), DOCUMENT_RATIO_MAX);
         assert_eq!(clamp(0.0), default_document_ratio());
         assert_eq!(clamp(-1.0), default_document_ratio());

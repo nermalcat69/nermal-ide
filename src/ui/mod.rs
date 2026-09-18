@@ -7,6 +7,7 @@ pub mod diff_rows;
 pub mod document_column;
 pub mod file_copy;
 pub mod file_tree;
+pub mod floating_terminal;
 pub mod forwards;
 pub mod git_heatmap;
 pub(crate) mod gpu_usage;

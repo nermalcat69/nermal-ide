@@ -1083,6 +1083,53 @@ impl NermalApp {
             .into_any_element()
     }
 
+    /// The title bar's own way to tell which workspace this window is
+    /// showing and to switch it, for when the sidebar — and with it
+    /// [`Self::workspace_head`] — is collapsed. Opens the same switcher, so a
+    /// window never gains a second, different way to change workspace.
+    fn workspace_switch_tile(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let current = crate::ui::machine_mirror::display_name_for(cx, self.workspace)
+            .unwrap_or_else(|| "nermal".to_string());
+        Button::new("titlebar-workspace-switch")
+            .custom(chrome_tile_variant(cx))
+            .child(
+                h_flex()
+                    .id("titlebar-workspace-switch-ink")
+                    .w_full()
+                    .items_center()
+                    .gap(px(4.))
+                    .text_color(cx.theme().muted_foreground)
+                    .hover(|s| s.text_color(cx.theme().foreground))
+                    .child(
+                        div()
+                            .flex_shrink(1.)
+                            .min_w_0()
+                            .truncate()
+                            .text_size(px(12.5))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(SharedString::from(current)),
+                    )
+                    .child(
+                        Icon::empty()
+                            .path("icons/chevrons-up-down.svg")
+                            .size(px(10.))
+                            .flex_shrink_0(),
+                    ),
+            )
+            .xsmall()
+            .w_full()
+            .h(px(TILE_SIZE))
+            .rounded_lg()
+            .tooltip_element(chord_tooltip(
+                t(L10nKey::HomeSwitchWorkspace),
+                "ToggleSwitcher",
+                cx,
+            ))
+            .on_click(cx.listener(|this, _, window, cx| {
+                this.toggle_switcher(window, cx);
+            }))
+    }
+
     pub(crate) fn app_menu_tile(
         &self,
         window: &Window,
@@ -1249,7 +1296,37 @@ impl NermalApp {
                     }
                     false => this.set_right_panel_tab(tab, cx),
                 }
-            }));
+            }))
+            // The Source Control tile is the only one whose panel has
+            // something worth right-clicking off of it: the commit box is a
+            // compose surface someone who commits from the terminal may
+            // never want, and the history graph below has no matching switch
+            // (see `ScmPanelState::commit_box_visible`). Every other tab's
+            // menu closure just hands the (empty) menu straight back.
+            .context_menu({
+                let app = cx.entity().downgrade();
+                move |menu, _window, cx| {
+                    if tab != RightPanelTab::Scm {
+                        return menu;
+                    }
+                    let visible = app
+                        .upgrade()
+                        .is_none_or(|app| app.read(cx).scm.commit_box_visible);
+                    menu.item(
+                        PopupMenuItem::new(if visible {
+                            t(L10nKey::ScmHideCommitBox)
+                        } else {
+                            t(L10nKey::ScmShowCommitBox)
+                        })
+                        .on_click({
+                            let app = app.clone();
+                            move |_, _window, cx| {
+                                let _ = app.update(cx, |this, cx| this.scm_toggle_commit_box(cx));
+                            }
+                        }),
+                    )
+                }
+            });
             div()
                 .flex_shrink_0()
                 // Full height and `relative` so the bar below can be pinned to
@@ -2187,6 +2264,20 @@ impl NermalApp {
                                 cx.listener(|this, _, _window, cx| this.toggle_left_panel(cx)),
                             ),
                         ),
+                )
+                // `workspace_head` gives the sidebar this same switch-workspace
+                // control at its top; collapsing the sidebar takes it away
+                // with nothing standing in for it here, which left the title
+                // bar with no way to tell which workspace this window even
+                // was, let alone switch it, until the sidebar came back.
+                .child(
+                    div()
+                        .occlude()
+                        .flex_shrink(1.)
+                        .min_w(px(0.))
+                        .max_w(px(160.))
+                        .pl(px(2.))
+                        .child(self.workspace_switch_tile(cx)),
                 )
         });
 

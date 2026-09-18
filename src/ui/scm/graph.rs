@@ -788,6 +788,20 @@ impl NermalApp {
         let visible = (height / GRAPH_ROW_H).ceil() as usize + GRAPH_WINDOW_MARGIN * 2;
         let last = first.saturating_add(visible).min(rows.len());
 
+        // Auto-fetches the next page once scrolling brings the "load more"
+        // band into (or near) view, instead of making someone click it —
+        // still one request at a time, not "a burst of concurrent ones" the
+        // row-not-a-trigger design above guarded against: `scm_load_graph`'s
+        // own `loading` flag is the only thing gating this, the same gate a
+        // real click goes through, so a fast scroll past several pages'
+        // worth still lands its fetches one after another rather than all at
+        // once. Guarded on `loading` here too, so a `requested` bump does not
+        // refire every render while that fetch is still in flight.
+        if more && last == rows.len() && !self.scm.graph.loading {
+            self.scm.graph.requested = next_page_request(self.scm.graph.requested);
+            cx.notify();
+        }
+
         // With the gutter gone the text takes the panel's own inset, so a
         // search result does not sit in a column of empty space.
         let indent = if filtering { CONTENT_INSET } else { gutter };
@@ -2176,6 +2190,47 @@ mod tests {
             truncated_lanes: false,
             open_lanes: Vec::new(),
         }
+    }
+
+    /// Scrolling to where every loaded commit is already on screen is the
+    /// signal that used to need a click on "Load more" to act on — this
+    /// checks it now bumps `requested` on its own, through the exact same
+    /// `next_page_request` step a click makes, and does so without needing
+    /// `scm_load_graph` (the daemon round trip) to have run at all.
+    #[gpui::test]
+    fn scrolling_to_the_loaded_end_asks_for_more_on_its_own(cx: &mut TestAppContext) {
+        crate::core::config::pin_test_config_dir();
+        let (app, mut vcx) = harness(cx);
+
+        let page = Arc::new(CommitPage {
+            commits: vec![
+                commit_named("first", "Ada Lovelace", "aaaaaaa"),
+                commit_named("second", "Ada Lovelace", "bbbbbbb"),
+            ],
+            rows: Vec::new(),
+            max_lanes: 1,
+            scope: GraphScope::HeadAndUpstream,
+            requested: GRAPH_PAGE,
+            // The one thing that makes there be a "load more" band at all.
+            complete: false,
+            truncated_lanes: false,
+            open_lanes: Vec::new(),
+        });
+
+        app.update(&mut vcx, |app, cx| {
+            // Tall enough that both commits — and the load-more band after
+            // them — land inside the render window on the first pass, the
+            // same as a real window scrolled all the way down.
+            app.graph_body(&repo(), &page, None, 400., cx);
+        });
+
+        app.read_with(&vcx, |app, _| {
+            assert_eq!(
+                app.scm.graph.requested,
+                next_page_request(GRAPH_PAGE),
+                "reaching the loaded end must ask for the next page itself"
+            );
+        });
     }
 }
 

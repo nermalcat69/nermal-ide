@@ -598,10 +598,22 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SettingsRestoreLastLayoutDesc => {
             "Reopen the last window's tabs, splits, and directories on launch. Off starts with a single fresh terminal."
         }
+        L10nKey::SettingsNewWorkspaceSameWindow => "Open new workspaces in this window",
+        L10nKey::SettingsNewWorkspaceSameWindowDesc => {
+            "Switch this window to a new or picked workspace instead of opening a second window for it."
+        }
         L10nKey::SettingsShowTrayIcon => "Show tray icon",
         L10nKey::SettingsShowTrayIconDesc => {
             "A status item in the tray / menu bar: it signals when an agent needs input, and its menu jumps to agent panes."
         }
+        L10nKey::SettingsDiscordPresence => "Discord Rich Presence",
+        L10nKey::SettingsDiscordPresenceDesc => {
+            "Show what you're doing on your Discord profile, including the file open in the editor."
+        }
+        L10nKey::SettingsDiscordActivity => "Activity",
+        L10nKey::SettingsDiscordActivityDesc => "The verb Discord shows next to the file name.",
+        L10nKey::SettingsDiscordActivityEditing => "Editing in Nermal",
+        L10nKey::SettingsDiscordActivityCooking => "Cooking in Nermal",
         L10nKey::SettingsTabs => "Tabs",
         L10nKey::SettingsNewTabPosition => "New tab position",
         L10nKey::SettingsNewTabPositionDesc => "Where a freshly opened tab is inserted.",
@@ -1101,6 +1113,7 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::PanelAgentsNewInstance => "New Instance",
         L10nKey::PanelInstanceUnnamed => "Terminal",
         L10nKey::PaneMoveToSidebar => "Move to Sidebar",
+        L10nKey::PanePopOut => "Open in New Window",
         L10nKey::PaneMovedToSidebar => "Moved to the sidebar",
         L10nKey::PaneMoveBackToMain => "Move Back to Main Area",
         L10nKey::PaneShowHere => "Show Here",
@@ -1140,6 +1153,7 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         }
         L10nKey::PanelNoAgents => "No terminal instances yet.",
         L10nKey::PanelNoAgentsHint => "Open one to see it here.",
+        L10nKey::PanelOtherWorkspaces => "Other Workspaces",
         L10nKey::TerminalPanelEmpty => "No terminals running.",
         L10nKey::TerminalPanelEmptyHint => "Open a new terminal to get started.",
         L10nKey::PanelOpenIssue => "Open an Issue",
@@ -1209,6 +1223,8 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::ScmUnstageAll => "Unstage All Changes",
         L10nKey::ScmDiscard => "Discard Changes",
         L10nKey::ScmAddToGitignore => "Add to .gitignore",
+        L10nKey::ScmHideCommitBox => "Hide Commit Box",
+        L10nKey::ScmShowCommitBox => "Show Commit Box",
         L10nKey::ScmDiscardAll => "Discard All Changes",
         L10nKey::ScmDiscardConfirm => "Discard changes to {path}? This cannot be undone.",
         L10nKey::ScmOpenConflict => "Resolve Conflict",

@@ -605,10 +605,22 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsRestoreLastLayoutDesc => {
             "起動時に前回のウィンドウのタブ、分割、ディレクトリを復元します。オフなら新しいターミナルが 1 つだけ起動します"
         }
+        L10nKey::SettingsNewWorkspaceSameWindow => "新しいワークスペースをこのウィンドウで開く",
+        L10nKey::SettingsNewWorkspaceSameWindowDesc => {
+            "新規または選択したワークスペースにこのウィンドウを切り替えます。2 つ目のウィンドウは開きません"
+        }
         L10nKey::SettingsShowTrayIcon => "システムトレイアイコンを表示",
         L10nKey::SettingsShowTrayIconDesc => {
             "システムトレイ / メニューバーの状態表示：エージェントが入力を必要とするときに通知し、メニューからそのペインへ移動できます"
         }
+        L10nKey::SettingsDiscordPresence => "Discord Rich Presence",
+        L10nKey::SettingsDiscordPresenceDesc => {
+            "エディタで開いているファイルを含め、Discord のプロフィールに今していることを表示します"
+        }
+        L10nKey::SettingsDiscordActivity => "アクティビティ",
+        L10nKey::SettingsDiscordActivityDesc => "ファイル名の横に Discord が表示する動詞",
+        L10nKey::SettingsDiscordActivityEditing => "Nermal で編集中",
+        L10nKey::SettingsDiscordActivityCooking => "Nermal で調理中",
         L10nKey::SettingsTabs => "タブ",
         L10nKey::SettingsNewTabPosition => "新規タブの表示位置",
         L10nKey::SettingsNewTabPositionDesc => "新しく開いたタブが挿入される場所",
@@ -1163,6 +1175,7 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::PanelAgentsNewInstance => "新しいインスタンス",
         L10nKey::PanelInstanceUnnamed => "ターミナル",
         L10nKey::PaneMoveToSidebar => "サイドバーに移動",
+        L10nKey::PanePopOut => "新しいウィンドウで開く",
         L10nKey::PaneMovedToSidebar => "サイドバーに移動しました",
         L10nKey::PaneMoveBackToMain => "メインエリアに戻す",
         L10nKey::PaneShowHere => "ここに表示",
@@ -1202,6 +1215,7 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         }
         L10nKey::PanelNoAgents => "ターミナルインスタンスはまだありません",
         L10nKey::PanelNoAgentsHint => "開くとここに表示されます",
+        L10nKey::PanelOtherWorkspaces => "他のワークスペース",
         L10nKey::TerminalPanelEmpty => "ターミナルが実行されていません",
         L10nKey::TerminalPanelEmptyHint => "新しいターミナルを開いて開始してください",
         L10nKey::PanelOpenIssue => "問題を開く",
@@ -1280,6 +1294,8 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::ScmUnstageAll => "すべてのステージを取り消す",
         L10nKey::ScmDiscard => "変更を破棄",
         L10nKey::ScmAddToGitignore => ".gitignoreに追加",
+        L10nKey::ScmHideCommitBox => "コミットボックスを隠す",
+        L10nKey::ScmShowCommitBox => "コミットボックスを表示",
         L10nKey::ScmDiscardAll => "すべての変更を破棄",
         L10nKey::ScmDiscardConfirm => "{path} の変更を破棄しますか？元に戻せません。",
         L10nKey::ScmOpenConflict => "競合を解決",

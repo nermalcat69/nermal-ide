@@ -530,10 +530,22 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::SettingsRestoreLastLayoutDesc => {
             "启动时恢复上次窗口的标签页、分屏和目录。关闭时从单个新终端开始。"
         }
+        L10nKey::SettingsNewWorkspaceSameWindow => "在此窗口中打开新工作区",
+        L10nKey::SettingsNewWorkspaceSameWindowDesc => {
+            "将此窗口切换到新建或选择的工作区，而不是为其打开第二个窗口。"
+        }
         L10nKey::SettingsShowTrayIcon => "显示托盘图标",
         L10nKey::SettingsShowTrayIconDesc => {
             "在系统托盘/菜单栏保留状态项：agent 需要输入时发出提示，菜单可跳到该 agent 的窗格。"
         }
+        L10nKey::SettingsDiscordPresence => "Discord Rich Presence",
+        L10nKey::SettingsDiscordPresenceDesc => {
+            "在 Discord 个人资料上显示你正在做什么，包括编辑器中打开的文件。"
+        }
+        L10nKey::SettingsDiscordActivity => "活动",
+        L10nKey::SettingsDiscordActivityDesc => "Discord 在文件名旁显示的动词。",
+        L10nKey::SettingsDiscordActivityEditing => "正在用 Nermal 编辑",
+        L10nKey::SettingsDiscordActivityCooking => "正在用 Nermal 创作",
         L10nKey::SettingsTabs => "标签页",
         L10nKey::SettingsNewTabPosition => "新标签页位置",
         L10nKey::SettingsNewTabPositionDesc => "新打开的标签页插入的位置。",
@@ -1049,6 +1061,7 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::PanelAgentsTitle => "终端实例",
         L10nKey::PanelInstanceUnnamed => "终端",
         L10nKey::PaneMoveToSidebar => "移到侧边栏",
+        L10nKey::PanePopOut => "在新窗口中打开",
         L10nKey::PaneMovedToSidebar => "已移到侧边栏",
         L10nKey::PaneMoveBackToMain => "移回主区域",
         L10nKey::PaneShowHere => "在此显示",
@@ -1085,6 +1098,7 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::PanelAgentsNewInstance => "新建实例",
         L10nKey::PanelNoAgents => "暂无终端实例。",
         L10nKey::PanelNoAgentsHint => "打开一个即可在此查看。",
+        L10nKey::PanelOtherWorkspaces => "其他工作区",
         L10nKey::TerminalPanelEmpty => "没有正在运行的终端。",
         L10nKey::TerminalPanelEmptyHint => "打开一个新终端以开始。",
         L10nKey::PanelOpenIssue => "提交问题",
@@ -1152,6 +1166,8 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::ScmUnstageAll => "取消暂存全部更改",
         L10nKey::ScmDiscard => "放弃更改",
         L10nKey::ScmAddToGitignore => "添加到 .gitignore",
+        L10nKey::ScmHideCommitBox => "隐藏提交框",
+        L10nKey::ScmShowCommitBox => "显示提交框",
         L10nKey::ScmDiscardAll => "放弃全部更改",
         L10nKey::ScmDiscardConfirm => "放弃对 {path} 的更改？此操作无法撤销。",
         L10nKey::ScmOpenConflict => "解决冲突",

@@ -186,16 +186,30 @@ pub(crate) fn side_panel_max(viewport: f32, own_floor: f32, others_floor: f32) -
 /// The half of the window neither panel may grow past on its own.
 const SIDE_PANEL_MAX_RATIO: f32 = 0.5;
 
-/// The narrowest a docked document column may be squeezed to: the header, a
-/// readable run of about thirty columns, and the status bar under them. Below
-/// this a file is a ribbon of hyphenated fragments and the column is worth
-/// less than the terminal width it costs.
+/// The narrowest a document column may be squeezed to when it shares the
+/// window's *width* with a side panel — the header, a readable run of about
+/// thirty columns, and the status bar under them. Below this a file is a
+/// ribbon of hyphenated fragments and the column is worth less than the
+/// width it costs. Not a height floor: the document docks above the
+/// terminal now, not beside it, and that axis has its own, much shorter
+/// floor — see [`DOCUMENT_MIN_H`].
 pub(crate) const DOCUMENT_MIN_W: f32 = 280.;
 
 /// The shortest the terminal may be squeezed to when a document is docked
 /// above it: about one row, so there is always something there to read and a
 /// handle left to drag it back open with.
 pub(crate) const TERMINAL_MIN_H: f32 = 28.;
+
+/// The shortest the docked document column may be squeezed to on its own
+/// axis — its header plus about one row under it, the same "always
+/// something to read, always a handle to drag it back open with" floor
+/// [`TERMINAL_MIN_H`] gives the terminal. Dragging the divider used to stop
+/// at [`DOCUMENT_MIN_W`] instead — a *width* floor sized for thirty columns
+/// of text, left over from when the document docked beside the terminal
+/// rather than above it — which meant giving the terminal back most of the
+/// shared height was never actually possible: the column refused to shrink
+/// past 280px no matter how tall the window was.
+pub(crate) const DOCUMENT_MIN_H: f32 = TITLE_BAR_HEIGHT + TERMINAL_MIN_H;
 
 /// The gap always left between the terminal and the window's bottom edge, so
 /// dragging the divider down never lets either of them touch it.
@@ -220,11 +234,11 @@ pub(crate) const EDGE_CLEARANCE: f32 = 5.;
 /// nothing else to protect.
 pub(crate) fn document_column_px(body: f32, ratio: f32) -> Option<f32> {
     let terminal_floor = TERMINAL_MIN_H + EDGE_CLEARANCE;
-    if !body.is_finite() || body < terminal_floor + DOCUMENT_MIN_W {
+    if !body.is_finite() || body < terminal_floor + DOCUMENT_MIN_H {
         return None;
     }
     let ratio = if ratio.is_finite() { ratio } else { 0.5 };
-    Some((body * ratio).clamp(DOCUMENT_MIN_W, body - terminal_floor))
+    Some((body * ratio).clamp(DOCUMENT_MIN_H, body - terminal_floor))
 }
 
 pub(crate) const TITLE_BAR_HEIGHT: f32 = 40.;
@@ -1421,6 +1435,7 @@ impl NermalApp {
         let right_panel_visible = cx.global::<Config>().right_panel_visible;
         let right_panel_tab = cx.global::<Config>().right_panel_tab;
         let scm_graph_expanded = cx.global::<Config>().scm_graph_expanded;
+        let scm_commit_box_visible = cx.global::<Config>().scm_commit_box_visible;
         let sidebar_collapsed = cx.global::<Config>().sidebar_collapsed;
         let config_watch = cx.observe_global_in::<Config>(window, |this, window, cx| {
             this.reload_from_config(window, cx)
@@ -1450,6 +1465,18 @@ impl NermalApp {
             if window.is_window_active() {
                 WorkspaceStore::focus(cx, this.workspace);
                 this.refresh_git_status_all(cx);
+            } else {
+                // These only ever go true from a mouse-move this window
+                // actually received, but they have no matching "the pointer
+                // left" event to go false on: losing activation without one
+                // — Cmd+Tab, a click that raises another app's window over
+                // this one — leaves whichever tile was last under the
+                // pointer painted hovered for an app that is no longer key,
+                // let alone in front.
+                this.sidebar_chrome_hover.set(false);
+                this.strip_chrome_hover.set(false);
+                this.pane_hover.set(None);
+                cx.notify();
             }
         });
         let this = cx.weak_entity();
@@ -1579,6 +1606,7 @@ impl NermalApp {
                     expanded: scm_graph_expanded,
                     ..Default::default()
                 },
+                commit_box_visible: scm_commit_box_visible,
                 ..Default::default()
             },
             diff_probes_inflight: Default::default(),
@@ -3467,6 +3495,10 @@ impl NermalApp {
         self.update_config(cx, |cfg| cfg.restore_session = on);
     }
 
+    pub(crate) fn set_new_workspace_same_window(&mut self, on: bool, cx: &mut Context<Self>) {
+        self.update_config(cx, |cfg| cfg.new_workspace_same_window = on);
+    }
+
     /// Takes effect on the next pane: a shell is told where its history lives
     /// when it starts, and nothing can move it afterwards.
     pub(crate) fn set_per_pane_history(&mut self, on: bool, cx: &mut Context<Self>) {
@@ -3475,6 +3507,29 @@ impl NermalApp {
 
     pub(crate) fn set_show_tray_icon(&mut self, on: bool, cx: &mut Context<Self>) {
         self.update_config(cx, |cfg| cfg.show_tray_icon = on);
+    }
+
+    pub(crate) fn set_discord_rich_presence_enabled(&mut self, on: bool, cx: &mut Context<Self>) {
+        self.update_config(cx, |cfg| cfg.discord_rich_presence_enabled = on);
+        // Clears the activity immediately on turning it off, rather than
+        // waiting for the next render's `sync_discord_presence` call —
+        // which would still come, but there is no reason to make someone
+        // who just unchecked this watch their Discord status catch up.
+        if !on {
+            crate::core::discord_presence::sync(
+                false,
+                cx.global::<Config>().discord_rich_presence_activity,
+                None,
+            );
+        }
+    }
+
+    pub(crate) fn set_discord_rich_presence_activity(
+        &mut self,
+        activity: crate::core::config::DiscordPresenceActivity,
+        cx: &mut Context<Self>,
+    ) {
+        self.update_config(cx, |cfg| cfg.discord_rich_presence_activity = activity);
     }
 
     pub(crate) fn set_macos_option_as_alt(&mut self, on: bool, cx: &mut Context<Self>) {
@@ -3580,6 +3635,25 @@ impl NermalApp {
         }
         window.set_window_title(&title);
         *self.window_title.borrow_mut() = title;
+    }
+
+    /// Tells Discord what nermal is doing, if the feature is on — the file
+    /// open in the editor, under whichever activity verb Settings picked.
+    /// Safe to call from every render: `discord_presence::sync` only actually
+    /// does anything the first time a frame's answer differs from the last.
+    pub(crate) fn sync_discord_presence(&self, cx: &App) {
+        let cfg = cx.global::<Config>();
+        let file_name = self.tab_code().and_then(|code| {
+            let file = code.files.get(code.active)?;
+            file.path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+        });
+        crate::core::discord_presence::sync(
+            cfg.discord_rich_presence_enabled,
+            cfg.discord_rich_presence_activity,
+            file_name,
+        );
     }
 
     pub(crate) fn focus_active(&self, window: &mut Window, cx: &mut App) {
@@ -4611,6 +4685,79 @@ impl NermalApp {
         cx.notify();
     }
 
+    /// Lifts a pane out of its tab (or, when it is the tab's only one, the
+    /// whole tab) and gives it a plain window of its own — the terminal
+    /// column's "pop out" button, reached the same way "move to sidebar" is.
+    ///
+    /// Nothing is spawned and nothing is killed: same guarantee
+    /// `detach_pane` makes for a pane dragged into its own tab, just landing
+    /// in a whole window instead. Closing that window is the way back — see
+    /// [`Self::reattach_popped_terminal`], which its `on_window_should_close`
+    /// hook calls.
+    pub(crate) fn pop_out_terminal(
+        &mut self,
+        pane_id: u64,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(tab) = self.tabs.get_mut(self.active) else {
+            return;
+        };
+        let Some(slot) = tab
+            .pane
+            .leaves()
+            .into_iter()
+            .find(|l| l.terminal().is_some_and(|v| v.read(cx).pane_id == pane_id))
+        else {
+            return;
+        };
+        let slot = match tab.pane.take_leaf(&slot) {
+            // The tab has more panes than this one; the rest stay right
+            // where they were.
+            Some(slot) => slot,
+            // This was the tab's only pane — nothing sensible is left in it
+            // once the pane leaves, so the tab leaves with it. Mirrors the
+            // `CloseOutcome::RemoveSelf` branch `close_pane_inner` takes for
+            // the same shape of "last pane standing", just handing the pane
+            // to a window instead of ending it.
+            None => {
+                let index = self.active;
+                let removed = self.tabs.remove(index);
+                self.active = index.min(self.tabs.len().saturating_sub(1));
+                self.maximized = None;
+                self.focus_active(window, cx);
+                self.save_session(cx);
+                match removed.pane {
+                    crate::ui::pane::Pane::Leaf(slot) => slot,
+                    // A tab whose `take_leaf` just refused is, by
+                    // definition, a single leaf — nothing else this could be.
+                    _ => unreachable!("take_leaf refused a tab with more than one leaf"),
+                }
+            }
+        };
+        crate::ui::floating_terminal::open(cx.entity().downgrade(), slot, cx);
+        self.save_session(cx);
+        cx.notify();
+    }
+
+    /// What a floating terminal's window hands back on close — a tab of its
+    /// own on the workspace it left, the same shape [`Self::detach_pane`]
+    /// builds one in for a pane dropped out of the strip.
+    ///
+    /// No `Window` to focus into: the window this runs from is the one
+    /// closing, not this workspace's, so the new tab lands unfocused rather
+    /// than reaching for a window this call has no business touching.
+    pub(crate) fn reattach_popped_terminal(
+        &mut self,
+        slot: crate::ui::pane::PaneSlot,
+        cx: &mut Context<Self>,
+    ) {
+        self.tabs.push(Tab::new(crate::ui::pane::Pane::leaf(slot)));
+        self.maximized = None;
+        self.save_session(cx);
+        cx.notify();
+    }
+
     /// Puts a dragged pane down where the last painted frame said it would go.
     ///
     /// Both ends of the drop are named by pane rather than by position, so a
@@ -5561,7 +5708,13 @@ impl NermalApp {
         self.bump_command_frecency(&kind, cx);
         match kind {
             NewTab => self.new_tab(window, cx),
-            NewWorkspace => self.new_window(cx),
+            NewWorkspace => {
+                if cx.global::<Config>().new_workspace_same_window {
+                    self.switch_workspace(None, window, cx);
+                } else {
+                    self.new_window(cx);
+                }
+            }
             NewWindow => self.new_window(cx),
             OpenWorkspacePicker => self.open_switcher(window, cx),
             StopWorkspace => self.stop_workspace(self.workspace, window, cx),
@@ -7766,6 +7919,7 @@ impl Render for NermalApp {
         // (`text_sm`, `text_xs`, `rems(..)`) resolves against it, and the
         // terminal grid, sized in absolute px from `font_size`, does not move.
         window.set_rem_size(px(cx.global::<Config>().ui_font_size));
+        self.sync_discord_presence(cx);
         self.claim_pending_tab(window, cx);
         self.touch_active_tab();
         self.declare_displayed_panes(cx);
@@ -8174,8 +8328,12 @@ impl Render for NermalApp {
                     let id = this.workspace;
                     this.delete_workspace(id, window, cx);
                 }))
-                .on_action(cx.listener(|this, _: &NewWorkspace, _window, cx| {
-                    this.new_window(cx);
+                .on_action(cx.listener(|this, _: &NewWorkspace, window, cx| {
+                    if cx.global::<Config>().new_workspace_same_window {
+                        this.switch_workspace(None, window, cx);
+                    } else {
+                        this.new_window(cx);
+                    }
                 }))
                 .on_action(cx.listener(|this, _: &NewWindow, _window, cx| {
                     this.new_window(cx);
@@ -9557,7 +9715,8 @@ mod window_drag_tests {
 #[cfg(test)]
 mod tests {
     use super::{
-        CloseReason, DOCUMENT_MIN_W, Dir, EDGE_CLEARANCE, Pane, Rename, TERMINAL_MIN_H,
+        CloseReason, DOCUMENT_MIN_H, DOCUMENT_MIN_W, Dir, EDGE_CLEARANCE, Pane, Rename,
+        TERMINAL_MIN_H,
         TERMINAL_MIN_W, TITLE_BAR_HEIGHT, Tab, TabAgentSession, clear_window_override_values,
         close_prompt, document_column_px, join_shell_args, leaf_shares_the_window_daemon,
         mru_order, pane_free_for, parse_ssh_connect_input, parse_ssh_option_words, rename_outcome,
@@ -9756,7 +9915,7 @@ mod tests {
         // Squeezed under the document's own floor plus the terminal's, the
         // document is the one that gives up first — and then stops existing
         // rather than dropping under its own floor.
-        let squeezed = terminal_floor + DOCUMENT_MIN_W - 1.;
+        let squeezed = terminal_floor + DOCUMENT_MIN_H - 1.;
         assert_eq!(document_column_px(squeezed, 0.5), None);
     }
 
@@ -10366,6 +10525,52 @@ pub(crate) mod test_window {
             );
             std::thread::sleep(std::time::Duration::from_millis(20));
         }
+    }
+}
+
+#[cfg(test)]
+mod pop_out_terminal_tests {
+    use super::test_window::harness_with_tabs;
+    use crate::ui::pane::PaneSlot;
+    use gpui::TestAppContext;
+
+    /// The deterministic half of the round trip: a popped-out pane's window
+    /// closing hands the same slot to `reattach_popped_terminal`, which must
+    /// land it as a brand new tab rather than losing it. `pop_out_terminal`
+    /// itself opens a real OS window, which a headless test has no business
+    /// asserting on — this checks the return path it depends on instead.
+    #[gpui::test]
+    fn reattach_gives_the_returning_terminal_a_tab_of_its_own(cx: &mut TestAppContext) {
+        let (app, mut vcx, _streams) = harness_with_tabs(cx, 1);
+        let slot = app.update_in(&mut vcx, |app, _, _| {
+            app.tabs[0]
+                .pane
+                .leaves()
+                .into_iter()
+                .next()
+                .expect("the single tab has one leaf")
+        });
+        let tabs_before = app.read_with(&vcx, |app, _| app.tabs.len());
+
+        app.update_in(&mut vcx, |app, _, cx| {
+            app.reattach_popped_terminal(slot, cx);
+        });
+
+        app.read_with(&vcx, |app, cx| {
+            assert_eq!(
+                app.tabs.len(),
+                tabs_before + 1,
+                "the returning terminal needs a tab of its own, not to vanish"
+            );
+            let PaneSlot::Ready(view) = app.tabs.last().unwrap().pane.leaves().remove(0) else {
+                panic!("harness_with_tabs only ever hands out ready terminals");
+            };
+            assert_eq!(
+                view.read(cx).pane_id,
+                1,
+                "it's the same pane, not a new one"
+            );
+        });
     }
 }
 

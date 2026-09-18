@@ -1,6 +1,7 @@
-use gpui::{AnyElement, Context, Focusable as _, Window, div, prelude::*, px, rems};
+use gpui::{AnyElement, Context, Focusable as _, SharedString, Window, div, prelude::*, px, rems};
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{Input, InputEvent, InputState};
+use gpui_component::tooltip::Tooltip;
 use gpui_component::{
     ActiveTheme as _, Icon, IconName, InteractiveElementExt as _, Sizable as _, WindowExt as _,
     h_flex, v_flex,
@@ -11,7 +12,7 @@ use crate::core::config::{Config, RightPanelTab};
 use crate::daemon::control::{ControlRequest, ReplyOk, RouteInfo};
 use crate::daemon::protocol::{ManagedForward, PaneProcs, PortProbe};
 use crate::ui::app::{
-    CONTENT_INSET, NermalApp, TILE_GLYPH_SM, TILE_GLYPH_XS, TILE_SIZE_SM, TILE_SIZE_XS,
+    CONTENT_INSET, NermalApp, TILE_GLYPH_SM, TILE_GLYPH_XS, TILE_SIZE_SM, TILE_SIZE_XS, Tab,
     tile_trailing_inset, tile_trailing_inset_sm,
 };
 use crate::ui::i18n::{L10nKey, t, t_fmt};
@@ -317,6 +318,15 @@ pub(crate) struct RightPanelState {
     /// silently re-adopt an unrelated new terminal that happens to reuse an
     /// `EntityId` slot.
     pub(crate) docked_terminal: Option<u64>,
+    /// The docked terminal's own leaf, lifted out of whatever tab held it —
+    /// `None` either because nothing is docked, or because the docked pane
+    /// was the only leaf in its tab (there is nowhere to lift it *to*
+    /// without closing the tab out from under it, so it stays put and the
+    /// tab's own render still swaps in the "moved to sidebar" placeholder).
+    /// `Some` is what makes the common case — a split with something beside
+    /// it — free the space the terminal used to occupy instead of leaving a
+    /// placeholder sitting in it.
+    pub(crate) docked_terminal_home: Option<crate::ui::pane::PaneSlot>,
 }
 
 /// How many renders a reveal waits for its row to show up. Generous: it costs
@@ -693,6 +703,9 @@ impl NermalApp {
         &self,
         cx: &gpui::App,
     ) -> Option<gpui::Entity<crate::terminal::view::TerminalView>> {
+        if let Some(slot) = &self.right_panel.docked_terminal_home {
+            return slot.terminal().cloned();
+        }
         let id = self.right_panel.docked_terminal?;
         self.tabs
             .iter()
@@ -702,18 +715,32 @@ impl NermalApp {
 
     /// Shows `pane_id`'s terminal live in the right panel instead of in its
     /// own pane — see [`crate::ui::pane::PaneChrome::docked_terminal`]. Also
-    /// how the Instances list switches which terminal is shown: calling this
-    /// with a different id just swaps which one the panel names, and the
-    /// leaf that used to be named goes back to showing its terminal live on
-    /// the very next render, since that check is a plain comparison rather
-    /// than anything this has to unwind.
+    /// how the Instances list switches which terminal is shown: swapping to a
+    /// different id puts the previous one back first (`reattach_docked_terminal`),
+    /// the same way undocking does, rather than leaving it homeless.
+    ///
+    /// Lifts the leaf out of its tab (see `docked_terminal_home`) whenever
+    /// that tab has something else in it — `Pane::take_leaf` refuses only
+    /// for the last leaf, which is the one case with nowhere to free the
+    /// space to.
     pub(crate) fn dock_terminal_to_sidebar(
         &mut self,
         pane_id: u64,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.right_panel.docked_terminal != Some(pane_id) {
+            self.reattach_docked_terminal(window, cx);
+        }
         self.right_panel.docked_terminal = Some(pane_id);
+        self.right_panel.docked_terminal_home = self.tabs.iter_mut().find_map(|tab| {
+            let slot = tab
+                .pane
+                .leaves()
+                .into_iter()
+                .find(|l| l.terminal().is_some_and(|v| v.read(cx).pane_id == pane_id))?;
+            tab.pane.take_leaf(&slot)
+        });
         self.set_right_panel_tab(RightPanelTab::Agents, cx);
         let target = self
             .right_panel_max_px(window, cx)
@@ -725,9 +752,34 @@ impl NermalApp {
         cx.notify();
     }
 
-    pub(crate) fn undock_terminal(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn undock_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.reattach_docked_terminal(window, cx);
         self.right_panel.docked_terminal = None;
         cx.notify();
+    }
+
+    /// Gives the docked terminal's lifted leaf a tab of its own again, the
+    /// same shape `detach_pane` builds one in for a pane dragged out of the
+    /// tab strip — this is the same operation, just reached from the panel's
+    /// "move back to main" button instead of a drag. A no-op when nothing was
+    /// actually lifted (`docked_terminal_home` is `None`): either nothing is
+    /// docked, or the docked pane was its tab's only leaf and never left.
+    fn reattach_docked_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(slot) = self.right_panel.docked_terminal_home.take() else {
+            return;
+        };
+        let cwd = slot
+            .terminal()
+            .and_then(|view| view.read(cx).spawnable_cwd());
+        let group = self.spawn_group(cwd.as_deref(), cx);
+        let fresh = Tab::new(crate::ui::pane::Pane::leaf(slot));
+        if let Some(group) = group {
+            *fresh.sidebar_group.borrow_mut() = group;
+        }
+        self.tabs.push(fresh);
+        self.active = self.tabs.len() - 1;
+        self.focus_active(window, cx);
+        self.save_session(cx);
     }
 
     pub(crate) fn toggle_right_panel(&mut self, cx: &mut Context<Self>) {
@@ -2301,19 +2353,40 @@ impl NermalApp {
     }
 
     fn usage_process_row(&self, proc_: &ProcessUsage, cx: &mut Context<Self>) -> AnyElement {
+        let pid = proc_.pid;
+        let detail: SharedString = format!(
+            "{}\npid {pid} · {:.1}% CPU · {}",
+            proc_.name,
+            proc_.cpu_percent,
+            format_memory(proc_.memory_bytes)
+        )
+        .into();
+        let row_id = SharedString::from(format!("usage-proc-row-{pid}"));
         h_flex()
-            .items_baseline()
+            .id(row_id.clone())
+            .group(row_id)
+            .items_center()
             .justify_between()
             .gap(px(8.))
             .px(px(ROW_INSET))
+            .py(px(1.))
+            .rounded(px(4.))
+            .hover(|s| {
+                s.bg(gpui::rgb(
+                    cx.global::<crate::ui::presets::Surfaces>().sidebar.hover,
+                ))
+            })
             .child(
+                // Bare name, not "name (pid)" — the pid is raw information,
+                // not what tells two rows apart at a glance, and it moved to
+                // the info button beside it rather than crowding every row.
                 div()
                     .flex_1()
                     .min_w_0()
                     .truncate()
                     .text_size(rems(TEXT))
                     .text_color(cx.theme().foreground)
-                    .child(format!("{} ({})", proc_.name, proc_.pid)),
+                    .child(proc_.name.clone()),
             )
             .child(
                 div()
@@ -2326,6 +2399,28 @@ impl NermalApp {
                         proc_.cpu_percent,
                         format_memory(proc_.memory_bytes)
                     )),
+            )
+            .child(
+                self.info_tile_icon(
+                    ("usage-proc-info", pid as usize),
+                    Icon::empty().path("icons/circle-info.svg"),
+                    "",
+                    cx,
+                )
+                .tooltip_element(move |_window, cx| cx.new(|_| Tooltip::new(detail.clone())))
+                .on_click(|_, _, cx| cx.stop_propagation()),
+            )
+            .child(
+                self.info_tile_icon(
+                    ("usage-proc-kill", pid as usize),
+                    Icon::empty().path("icons/octagon-x.svg"),
+                    t(L10nKey::PanelKillProcess),
+                    cx,
+                )
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    cx.stop_propagation();
+                    this.kill_local_process(pid, window, cx);
+                })),
             )
             .into_any_element()
     }
@@ -2619,6 +2714,68 @@ impl NermalApp {
             }
         }
 
+        // Every row above belongs to `self.workspace` — a window shows one
+        // workspace's tabs at a time (`switch_workspace` replaces them
+        // wholesale rather than layering several in). With workspace
+        // switching no longer confined to opening a second window for it
+        // (`Config::new_workspace_same_window`), a terminal left running in a
+        // workspace this window just switched away from would otherwise be
+        // invisible here — not gone, just not this window's to show. Listing
+        // it anyway, named by the workspace that owns it, is what keeps
+        // "what's still running" honest across every open workspace rather
+        // than only the one on screen.
+        struct ForeignInstanceRow {
+            workspace: crate::core::session::WorkspaceId,
+            workspace_name: String,
+            name: String,
+            agent: Option<crate::core::cli_agent::CLIAgent>,
+            status: Option<crate::core::cli_agent::AgentStatus>,
+        }
+        let self_workspace = self.workspace;
+        let mut foreign_rows = Vec::new();
+        // A window's own render tree can come up before `WindowRegistry`'s
+        // global does (every gpui test harness that never calls
+        // `WindowRegistry::init` is exactly that) — reading it unconditionally
+        // would turn "no other window happens to be open" into a panic.
+        let open_windows = cx
+            .has_global::<crate::ui::windows::WindowRegistry>()
+            .then(|| crate::ui::windows::WindowRegistry::open_windows(cx))
+            .unwrap_or_default();
+        for (id, weak) in open_windows {
+            if id == self_workspace {
+                continue;
+            }
+            let Some(other) = weak.upgrade() else {
+                continue;
+            };
+            let workspace_name = crate::ui::machine_mirror::display_name_for(cx, id)
+                .unwrap_or_else(|| t(L10nKey::PanelInstanceUnnamed).to_string());
+            let other = other.read(cx);
+            for tab in &other.tabs {
+                for leaf in tab.pane.terminals() {
+                    let view = leaf.read(cx);
+                    let agent = view.agent();
+                    let name = agent
+                        .map(|a| a.display_name().to_string())
+                        .or_else(|| tab.name.clone())
+                        .or_else(|| {
+                            view.effective_cwd().and_then(|p| {
+                                p.file_name().map(|n| n.to_string_lossy().into_owned())
+                            })
+                        })
+                        .unwrap_or_else(|| t(L10nKey::PanelInstanceUnnamed).to_string());
+                    let status = agent.and_then(|_| view.agent_session().map(|s| s.status));
+                    foreign_rows.push(ForeignInstanceRow {
+                        workspace: id,
+                        workspace_name: workspace_name.clone(),
+                        name,
+                        agent,
+                        status,
+                    });
+                }
+            }
+        }
+
         let row_categories: Vec<Option<crate::core::group_key::GroupKey>> =
             rows.iter().map(|r| r.category.clone()).collect();
         let categories = self.render_instance_categories(&row_categories, cx);
@@ -2640,7 +2797,69 @@ impl NermalApp {
             }
         }
 
-        if rows.is_empty() {
+        let foreign_section = (!foreign_rows.is_empty()).then(|| {
+            let mut section = v_flex().px(px(CONTENT_INSET - ROW_INSET)).py(px(2.)).child(
+                div()
+                    .px(px(ROW_INSET))
+                    .pt_2()
+                    .pb_1()
+                    .text_size(rems(META))
+                    .text_color(cx.theme().muted_foreground)
+                    .child(t(L10nKey::PanelOtherWorkspaces)),
+            );
+            for (i, row) in foreign_rows.into_iter().enumerate() {
+                let avatar = self.tab_avatar(
+                    ("panel-foreign-avatar", i),
+                    row.agent,
+                    row.status,
+                    0,
+                    None,
+                    18.,
+                    cx,
+                );
+                let workspace = row.workspace;
+                section = section.child(
+                    h_flex()
+                        .id(("panel-foreign-row", i))
+                        .cursor_pointer()
+                        .items_center()
+                        .gap(px(8.))
+                        .px(px(ROW_INSET))
+                        .py(px(3.))
+                        .rounded(px(5.))
+                        .hover(|s| {
+                            s.bg(gpui::rgb(
+                                cx.global::<crate::ui::presets::Surfaces>().sidebar.hover,
+                            ))
+                        })
+                        .child(avatar)
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .truncate()
+                                .text_size(rems(TEXT))
+                                .text_color(cx.theme().foreground)
+                                .child(row.name),
+                        )
+                        .child(
+                            div()
+                                .flex_none()
+                                .max_w(px(96.))
+                                .truncate()
+                                .text_size(rems(META))
+                                .text_color(cx.theme().muted_foreground)
+                                .child(row.workspace_name),
+                        )
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.reveal_workspace(workspace, window, cx);
+                        })),
+                );
+            }
+            section
+        });
+
+        if rows.is_empty() && foreign_section.is_none() {
             return self.panel_scroll(
                 v_flex()
                     .child(categories)
@@ -2649,6 +2868,15 @@ impl NermalApp {
                         Some(t(L10nKey::PanelNoAgentsHint)),
                         cx,
                     ))
+                    .into_any_element(),
+                title,
+            );
+        }
+        if rows.is_empty() {
+            return self.panel_scroll(
+                v_flex()
+                    .child(categories)
+                    .children(foreign_section)
                     .into_any_element(),
                 title,
             );
@@ -2737,7 +2965,7 @@ impl NermalApp {
                     .on_click(cx.listener(move |this, _, window, cx| {
                         cx.stop_propagation();
                         if docked_here {
-                            this.undock_terminal(cx);
+                            this.undock_terminal(window, cx);
                         } else {
                             this.dock_terminal_to_sidebar(pane_id, window, cx);
                         }
@@ -2799,7 +3027,11 @@ impl NermalApp {
         }
         let Some(docked_view) = self.docked_terminal_view(cx) else {
             return self.panel_scroll(
-                v_flex().child(categories).child(list).into_any_element(),
+                v_flex()
+                    .child(categories)
+                    .child(list)
+                    .children(foreign_section)
+                    .into_any_element(),
                 title,
             );
         };
@@ -2809,7 +3041,12 @@ impl NermalApp {
             .max_h(px(INSTANCE_ROW_H * DOCKED_LIST_ROWS))
             .overflow_y_scroll()
             .track_scroll(&self.right_panel.scroll)
-            .child(v_flex().child(categories).child(list));
+            .child(
+                v_flex()
+                    .child(categories)
+                    .child(list)
+                    .children(foreign_section),
+            );
         let height = self
             .docked_terminal_height
             .get()
@@ -2839,8 +3076,8 @@ impl NermalApp {
                                 .xsmall(),
                         )
                         .tooltip(t(L10nKey::PaneMoveBackToMain))
-                        .on_click(cx.listener(|this, _, _window, cx| {
-                            this.undock_terminal(cx);
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.undock_terminal(window, cx);
                         })),
                     ),
             )
@@ -3264,6 +3501,126 @@ mod network_tests {
         assert_eq!(rows.len(), 1);
         assert!(rows[0].rx_rate.is_none());
         assert!(rows[0].tx_rate.is_none());
+    }
+}
+
+#[cfg(test)]
+mod docked_terminal_tests {
+    use crate::ui::app::test_window::harness_with_tabs;
+    use crate::ui::pane::{Pane, PaneSlot};
+    use gpui::{Axis, TestAppContext};
+
+    /// Two tabs merged into one split, the shape docking a terminal that is
+    /// *not* alone in its tab needs — `harness_with_tabs` gives every
+    /// terminal a tab of its own, so this is the harness's own job, not
+    /// something `dock_terminal_to_sidebar` does.
+    fn merge_into_one_split_tab(app: &crate::ui::app::NermalApp) -> Pane {
+        Pane::split_node(
+            Axis::Vertical,
+            0.5,
+            app.tabs[0].pane.deep_clone(),
+            app.tabs[1].pane.deep_clone(),
+        )
+    }
+
+    /// Docking one of two panes that share a tab must free the space the
+    /// docked one used, not leave a "moved to sidebar" placeholder sitting in
+    /// it — `Pane::take_leaf` collapses the split, which is what this checks
+    /// actually happened to the tab's own tree.
+    #[gpui::test]
+    fn docking_a_pane_that_shares_its_tab_collapses_the_split_behind_it(cx: &mut TestAppContext) {
+        let (app, mut vcx, _streams) = harness_with_tabs(cx, 2);
+        app.update_in(&mut vcx, |app, _, _| {
+            let merged = merge_into_one_split_tab(app);
+            app.tabs.truncate(1);
+            app.tabs[0].pane = merged;
+        });
+        assert_eq!(
+            app.read_with(&vcx, |app, _| app.tabs[0].pane.leaves().len()),
+            2,
+            "the merge above should have produced one tab with two leaves"
+        );
+
+        app.update_in(&mut vcx, |app, window, cx| {
+            app.dock_terminal_to_sidebar(2, window, cx);
+        });
+
+        app.read_with(&vcx, |app, cx| {
+            let leaves = app.tabs[0].pane.leaves();
+            assert_eq!(
+                leaves.len(),
+                1,
+                "docking one of two panes must collapse the split, not placeholder it"
+            );
+            assert!(
+                matches!(&leaves[0], PaneSlot::Ready(v) if v.read(cx).pane_id == 1),
+                "the pane left behind must be the one that was not docked"
+            );
+            assert!(
+                app.right_panel.docked_terminal_home.is_some(),
+                "the docked pane's own leaf should be lifted out and held here"
+            );
+        });
+    }
+
+    /// Undocking gives the lifted leaf a tab of its own again — the same
+    /// "nothing killed, nothing new spawned" move `detach_pane` makes for a
+    /// pane dragged out of the strip.
+    #[gpui::test]
+    fn undocking_gives_the_lifted_pane_a_tab_of_its_own_again(cx: &mut TestAppContext) {
+        let (app, mut vcx, _streams) = harness_with_tabs(cx, 2);
+        app.update_in(&mut vcx, |app, _, _| {
+            let merged = merge_into_one_split_tab(app);
+            app.tabs.truncate(1);
+            app.tabs[0].pane = merged;
+        });
+        app.update_in(&mut vcx, |app, window, cx| {
+            app.dock_terminal_to_sidebar(2, window, cx);
+        });
+
+        app.update_in(&mut vcx, |app, window, cx| {
+            app.undock_terminal(window, cx);
+        });
+
+        app.read_with(&vcx, |app, _| {
+            assert!(
+                app.right_panel.docked_terminal_home.is_none(),
+                "undocking must clear the lifted leaf, not just the id"
+            );
+            assert_eq!(app.tabs.len(), 2, "the pane needs a tab to have landed in");
+            let last = app.tabs.last().expect("just asserted len == 2");
+            assert_eq!(
+                last.pane.leaves().len(),
+                1,
+                "reattached alone, not merged back into the other tab"
+            );
+        });
+    }
+
+    /// The sole leaf in a tab has nowhere to be lifted to without closing the
+    /// tab out from under it — `Pane::take_leaf` refuses, and the dock falls
+    /// back to the placeholder path that already existed for exactly this
+    /// case (`PaneChrome::docked_terminal` in `pane.rs`).
+    #[gpui::test]
+    fn docking_a_tabs_only_pane_leaves_it_in_place(cx: &mut TestAppContext) {
+        let (app, mut vcx, _streams) = harness_with_tabs(cx, 1);
+
+        app.update_in(&mut vcx, |app, window, cx| {
+            app.dock_terminal_to_sidebar(1, window, cx);
+        });
+
+        app.read_with(&vcx, |app, _| {
+            assert_eq!(
+                app.tabs[0].pane.leaves().len(),
+                1,
+                "the only leaf in the tab must still be there"
+            );
+            assert!(
+                app.right_panel.docked_terminal_home.is_none(),
+                "nothing was lifted, so there is nothing to hold"
+            );
+            assert_eq!(app.right_panel.docked_terminal, Some(1));
+        });
     }
 }
 

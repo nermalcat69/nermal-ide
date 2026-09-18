@@ -201,17 +201,28 @@ impl NermalApp {
         .detach();
     }
 
-    /// The folder parked by `home_open_folder`, made into a workspace in a
-    /// window of its own — `switch_workspace` would rebind *this* window,
-    /// leaving no window behind still showing the dashboard to create a
-    /// second workspace from. `windows::open_at` is the same call `new_window`
-    /// and the switcher's "Open in New Window" make for a fresh workspace,
-    /// just with the folder as its first tab's cwd instead of a bare shell.
-    fn commit_home_new_workspace(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+    /// The folder parked by `home_open_folder`, made into a new workspace.
+    ///
+    /// Which window it lands in is `Config::new_workspace_same_window`'s
+    /// call: off (the default) opens a window of its own the same way
+    /// `new_window` and the switcher's "Open in New Window" do, since this
+    /// window is showing the dashboard and closing it out from under
+    /// whoever is about to create a *second* workspace would be rude. On,
+    /// it swaps this window over in place — the same move
+    /// `reveal_workspace` makes for a workspace opened from the switcher.
+    fn commit_home_new_workspace(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(folder) = self.home_new_workspace.take() else {
             return;
         };
-        crate::ui::windows::open_at(cx, None, Some(folder));
+        if cx
+            .global::<crate::core::config::Config>()
+            .new_workspace_same_window
+        {
+            self.switch_workspace(None, window, cx);
+            self.new_tab_with_cwd(Some(folder), None, window, cx);
+        } else {
+            crate::ui::windows::open_at(cx, None, Some(folder));
+        }
     }
 
     fn cancel_home_new_workspace(&mut self, cx: &mut Context<Self>) {

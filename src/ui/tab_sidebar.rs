@@ -1127,6 +1127,7 @@ impl NermalApp {
                     .text_size(px(11.))
                     .text_color(cx.theme().muted_foreground)
                     .hover(|s| s.text_color(cx.theme().foreground))
+                    .cursor_pointer()
                     .on_click(cx.listener({
                         let key = group_key.clone();
                         move |this, _, _window, cx| this.toggle_sidebar_group(key.as_ref(), cx)
