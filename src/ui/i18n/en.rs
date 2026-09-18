@@ -1111,6 +1111,9 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::PanelKillProcessConfirm => "End process {pid}? Any unsaved work in it will be lost.",
         L10nKey::PanelNoAgents => "No terminal instances yet.",
         L10nKey::PanelNoAgentsHint => "Open one to see it here.",
+        L10nKey::TerminalPanelEmpty => "No terminals running.",
+        L10nKey::TerminalPanelEmptyHint => "Open a new terminal to get started.",
+        L10nKey::PanelOpenIssue => "Open an Issue",
         L10nKey::PanelFilesNowInSidebar => {
             "Your project files are in the left sidebar now. This tab is for browsing a remote host over SFTP."
         }

@@ -264,8 +264,8 @@ pub(crate) const TILE_PAD: f32 = (TILE_SIZE - TILE_GLYPH) / 2.;
 pub(crate) const TILE_PAD_SM: f32 = (TILE_SIZE_SM - TILE_GLYPH_SM) / 2.;
 
 const DOCS_URL: &str = "https://github.com/nermalcat69/nermal-ide#readme";
-const DISCORD_URL: &str = "https://discord.gg/s3dethqz2V";
-const ISSUES_URL: &str = "https://github.com/nermalcat69/nermal-ide/issues/new";
+pub(crate) const DISCORD_URL: &str = "https://discord.gg/RwVMqG7eck";
+pub(crate) const ISSUES_URL: &str = "https://github.com/nermalcat69/nermal-ide/issues/new";
 
 pub(crate) const CONTENT_INSET: f32 = 12.;
 
@@ -7770,6 +7770,19 @@ impl Render for NermalApp {
             .and_then(|t| t.pane.focused_or_first(window, cx))
             .and_then(|leaf| self.render_ssh_status_strip(&leaf, cx));
         let body = match self.tabs.get(self.active) {
+            // Zero tabs used to always mean the recent-workspaces dashboard —
+            // right, for a workspace nobody has opened anything in yet. Wrong
+            // once an open file is in play: killing every terminal instance
+            // must not also throw the editor and the right panel out, so the
+            // terminal column collapses to an empty placeholder instead of
+            // the whole window jumping to the dashboard.
+            None if self.document_front().is_some() => self
+                .panel_empty(
+                    t(L10nKey::TerminalPanelEmpty),
+                    Some(t(L10nKey::TerminalPanelEmptyHint)),
+                    cx,
+                )
+                .into_any_element(),
             None => self.render_home(cx).into_any_element(),
             Some(active_tab) => {
                 let maximized = self.maximized.as_ref().filter(|leaf| {

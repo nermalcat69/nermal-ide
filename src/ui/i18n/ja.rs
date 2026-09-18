@@ -1175,6 +1175,9 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::PanelKillProcessConfirm => "プロセス{pid}を終了しますか?保存されていない作業は失われます。",
         L10nKey::PanelNoAgents => "ターミナルインスタンスはまだありません",
         L10nKey::PanelNoAgentsHint => "開くとここに表示されます",
+        L10nKey::TerminalPanelEmpty => "ターミナルが実行されていません",
+        L10nKey::TerminalPanelEmptyHint => "新しいターミナルを開いて開始してください",
+        L10nKey::PanelOpenIssue => "問題を開く",
         L10nKey::PanelFilesNowInSidebar => {
             "プロジェクトのファイルは左サイドバーに移動しました。このタブはSFTP経由のリモートホスト閲覧用です。"
         }

@@ -1,5 +1,5 @@
 use gpui::{AnyElement, Context, Focusable as _, Window, div, prelude::*, px, rems};
-use gpui_component::button::Button;
+use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::{
     ActiveTheme as _, Icon, IconName, InteractiveElementExt as _, Sizable as _, WindowExt as _,
@@ -516,7 +516,7 @@ fn info_label_column(rows: &[InfoRow], window: &mut Window, cx: &gpui::App) -> g
 
 impl NermalApp {
     pub(crate) fn right_panel_open(&self, _cx: &gpui::App) -> bool {
-        self.right_panel_visible && !self.tabs.is_empty()
+        self.right_panel_visible
     }
 
     /// What the sidebar has reserved, from this panel's point of view.
@@ -637,6 +637,38 @@ impl NermalApp {
                 .children(cfg!(target_os = "macos").then(|| div().flex_none().h(px(8.))))
                 .child(body)
                 .children(self.sftp_transfers_footer(cx))
+                .child(
+                    h_flex()
+                        .flex_none()
+                        .w_full()
+                        .gap(px(6.))
+                        .px(px(CONTENT_INSET))
+                        .py(px(6.))
+                        .border_t_1()
+                        .border_color(cx.theme().sidebar_border)
+                        .child(
+                            Button::new("right-panel-open-issue")
+                                .label(t(L10nKey::PanelOpenIssue))
+                                .icon(IconName::Globe)
+                                .ghost()
+                                .small()
+                                .flex_1()
+                                .on_click(|_, _, cx| {
+                                    cx.open_url(crate::ui::app::ISSUES_URL);
+                                }),
+                        )
+                        .child(
+                            Button::new("right-panel-join-discord")
+                                .label(t(L10nKey::CmdJoinDiscord))
+                                .icon(IconName::Globe)
+                                .ghost()
+                                .small()
+                                .flex_1()
+                                .on_click(|_, _, cx| {
+                                    cx.open_url(crate::ui::app::DISCORD_URL);
+                                }),
+                        ),
+                )
                 .child(handle)
                 .into_any_element(),
         )
