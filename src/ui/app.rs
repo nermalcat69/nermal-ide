@@ -3360,6 +3360,14 @@ impl NermalApp {
         self.update_config(cx, |cfg| cfg.sidebar_diff_preview = on);
     }
 
+    pub(crate) fn set_scm_post_commit(
+        &mut self,
+        post_commit: crate::core::config::ScmPostCommit,
+        cx: &mut Context<Self>,
+    ) {
+        self.update_config(cx, |cfg| cfg.scm_post_commit = post_commit);
+    }
+
     pub(crate) fn toggle_tab_sidebar(&mut self, cx: &mut Context<Self>) {
         let next = match cx.global::<Config>().tab_bar_position {
             TabBarPosition::Top => TabBarPosition::Left,
@@ -4025,6 +4033,79 @@ impl NermalApp {
                     kill_pane_off_thread(leaf.read(cx).pane_route(), leaf.read(cx).pane_id, cx);
                 }
                 self.focus_active(window, cx);
+                self.save_session(cx);
+                cx.notify();
+            }
+        }
+    }
+
+    /// End one terminal instance by pane id, wherever it lives — the Terminal
+    /// Instances panel's kill button. Unlike [`Self::close_pane_inner`] this
+    /// does not require the pane to be focused or even in the active tab:
+    /// the panel shows every instance in the workspace at once, and the row's
+    /// button has to be able to end any of them from wherever the user
+    /// actually is.
+    pub(crate) fn kill_instance(
+        &mut self,
+        tab_index: usize,
+        leaf: Entity<TerminalView>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(reason) = self.leaf_close_reason(&leaf, cx) else {
+            self.kill_instance_now(tab_index, leaf, window, cx);
+            return;
+        };
+        let ends_the_tab = self
+            .tabs
+            .get(tab_index)
+            .is_some_and(|tab| tab.pane.leaves().len() <= 1);
+        let (title, body) = close_prompt(ends_the_tab, &reason);
+        let answer = window.prompt(
+            PromptLevel::Warning,
+            &title,
+            Some(&body),
+            &crate::ui::confirm_answers(
+                t(crate::ui::i18n::L10nKey::Close),
+                t(crate::ui::i18n::L10nKey::Keep),
+            ),
+            cx,
+        );
+        cx.spawn_in(window, async move |this, cx| {
+            let close = matches!(answer.await, Ok(0));
+            if !close {
+                return;
+            }
+            let _ = this.update_in(cx, |this, window, cx| {
+                this.kill_instance_now(tab_index, leaf, window, cx);
+            });
+        })
+        .detach();
+    }
+
+    /// The unconfirmed half of [`Self::kill_instance`] — same outcome
+    /// handling as [`Self::on_child_exited`], since ending a pane by request
+    /// and ending one because its process died collapse the same tab/pane
+    /// tree the same way.
+    fn kill_instance_now(
+        &mut self,
+        tab_index: usize,
+        leaf: Entity<TerminalView>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(tab) = self.tabs.get_mut(tab_index) else {
+            return;
+        };
+        match tab.pane.close_leaf(leaf.entity_id()) {
+            CloseOutcome::RemoveSelf => self.close_tab(tab_index, window, cx),
+            CloseOutcome::NotFound => {}
+            CloseOutcome::Collapsed => {
+                kill_pane_off_thread(leaf.read(cx).pane_route(), leaf.read(cx).pane_id, cx);
+                if tab_index == self.active {
+                    self.maximized = None;
+                    self.focus_active(window, cx);
+                }
                 self.save_session(cx);
                 cx.notify();
             }

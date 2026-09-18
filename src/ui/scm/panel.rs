@@ -26,6 +26,7 @@ use nermal_core::core::git::status::{
     ChangeCode, DecoStatus, HeadState, RepoOperation, RepoPath, StatusEntry, WorkingTreeStatus,
 };
 
+use crate::core::config::ScmPostCommit;
 use crate::terminal::git_data::status_of;
 use crate::terminal::git_diff::DiffSource;
 use crate::ui::app::{CONTENT_INSET, TILE_GLYPH_XS, TILE_SIZE_XS, NermalApp};
@@ -970,7 +971,8 @@ impl NermalApp {
         status: &WorkingTreeStatus,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let plan = commit_plan(status, self.scm.amend, self.scm.draft(repo));
+        let post_commit = cx.global::<crate::core::config::Config>().scm_post_commit;
+        let plan = commit_plan(status, self.scm.amend, self.scm.draft(repo), post_commit);
         let repo_for_button = repo.clone();
         let live = plan.enabled;
         let staged = status.staged().count();
@@ -1046,10 +1048,19 @@ impl NermalApp {
                             .disabled(!live)
                             .when(!live, |b| b.tooltip(t(plan.reason)))
                             .on_click(cx.listener(move |this, _, window, cx| {
+                                let follow_up = match post_commit {
+                                    ScmPostCommit::None => None,
+                                    ScmPostCommit::Push => {
+                                        Some(crate::ui::scm::actions::ScmFollowUp::Push)
+                                    }
+                                    ScmPostCommit::Sync => {
+                                        Some(crate::ui::scm::actions::ScmFollowUp::Sync)
+                                    }
+                                };
                                 this.scm_commit(
                                     repo_for_button.clone(),
                                     this.scm.amend,
-                                    None,
+                                    follow_up,
                                     window,
                                     cx,
                                 );
@@ -2042,13 +2053,22 @@ pub(crate) struct CommitPlan {
 /// would commit nothing, and the honest thing is to say on the button that
 /// every tracked change is about to go in. An armed amend needs no message —
 /// `--no-edit` keeps the one that is already on HEAD.
-pub(crate) fn commit_plan(status: &WorkingTreeStatus, amend: bool, message: &str) -> CommitPlan {
+pub(crate) fn commit_plan(
+    status: &WorkingTreeStatus,
+    amend: bool,
+    message: &str,
+    post_commit: ScmPostCommit,
+) -> CommitPlan {
     let staged = status.staged().next().is_some();
     let tracked_edits = status.unstaged().next().is_some();
     let label = if amend {
         L10nKey::ScmCommitAmendButton
     } else if staged {
-        L10nKey::ScmCommitButton
+        match post_commit {
+            ScmPostCommit::None => L10nKey::ScmCommitButton,
+            ScmPostCommit::Push => L10nKey::ScmCommitAndPush,
+            ScmPostCommit::Sync => L10nKey::ScmCommitAndSync,
+        }
     } else {
         L10nKey::ScmCommitAllButton
     };
@@ -2524,40 +2544,40 @@ mod tests {
         let clean = status_of_repo("/a", Vec::new());
 
         assert_eq!(
-            commit_plan(&staged, false, "msg").label,
+            commit_plan(&staged, false, "msg", ScmPostCommit::None).label,
             L10nKey::ScmCommitButton
         );
         // Nothing staged: the button says so rather than quietly running -a.
         assert_eq!(
-            commit_plan(&unstaged, false, "msg").label,
+            commit_plan(&unstaged, false, "msg", ScmPostCommit::None).label,
             L10nKey::ScmCommitAllButton
         );
         assert_eq!(
-            commit_plan(&staged, true, "").label,
+            commit_plan(&staged, true, "", ScmPostCommit::None).label,
             L10nKey::ScmCommitAmendButton
         );
 
-        assert!(commit_plan(&staged, false, "msg").enabled);
+        assert!(commit_plan(&staged, false, "msg", ScmPostCommit::None).enabled);
         assert!(
-            !commit_plan(&staged, false, "   ").enabled,
+            !commit_plan(&staged, false, "   ", ScmPostCommit::None).enabled,
             "an all-whitespace message is no message"
         );
         // ...and the reason must say so: staged work with a blank message is
         // not "nothing to commit", which is what the palette path used to
         // answer (#546).
         assert_eq!(
-            commit_plan(&staged, false, "  ").reason,
+            commit_plan(&staged, false, "  ", ScmPostCommit::None).reason,
             L10nKey::ScmCommitNeedsMessage
         );
         assert_eq!(
-            commit_plan(&clean, false, "msg").reason,
+            commit_plan(&clean, false, "msg", ScmPostCommit::None).reason,
             L10nKey::ScmNothingToCommit
         );
         assert!(
-            commit_plan(&clean, true, "").enabled,
+            commit_plan(&clean, true, "", ScmPostCommit::None).enabled,
             "amending with no message keeps HEAD's own with --no-edit"
         );
-        assert!(!commit_plan(&clean, false, "msg").enabled);
+        assert!(!commit_plan(&clean, false, "msg", ScmPostCommit::None).enabled);
     }
 
     #[test]

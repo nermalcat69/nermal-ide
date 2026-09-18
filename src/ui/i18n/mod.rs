@@ -814,7 +814,11 @@ l10n_keys! {
     PanelUsageCpu,
     PanelUsageMemory,
     PanelUsageProcesses,
+    PanelUsageGpu,
     PanelUsageByProcess,
+    SettingsSourceControl,
+    SettingsScmPostCommit,
+    SettingsScmPostCommitDesc,
     PanelActivitySubtitle,
     PanelKillProcess,
     PanelKillProcessConfirm,
@@ -1640,6 +1644,7 @@ mod tests {
             L10nKey::PanelSsh,
             // An initialism every locale reads the same way.
             L10nKey::PanelUsageCpu,
+            L10nKey::PanelUsageGpu,
             // The zh copy calls the background process "server" throughout —
             // this heading is that word on its own.
             L10nKey::SettingsServer,

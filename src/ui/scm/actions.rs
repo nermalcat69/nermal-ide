@@ -206,7 +206,12 @@ impl NermalApp {
             return;
         };
         let message = self.scm_message(&repo, cx);
-        let plan = crate::ui::scm::panel::commit_plan(&status, amend, &message);
+        let plan = crate::ui::scm::panel::commit_plan(
+            &status,
+            amend,
+            &message,
+            crate::core::config::ScmPostCommit::None,
+        );
         if !plan.enabled {
             // The panel's own button exposes this through disabled + tooltip;
             // the palette and the key binding have no tooltip to hover, so

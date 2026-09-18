@@ -196,6 +196,9 @@ pub struct Config {
     /// `diffEditor.renderSideBySide` makes.
     #[serde(default, deserialize_with = "de_lenient")]
     pub diff_view: DiffViewMode,
+    /// See [`ScmPostCommit`].
+    #[serde(default, deserialize_with = "de_lenient")]
+    pub scm_post_commit: ScmPostCommit,
     /// How the code / diff surface shares the window with the terminal — for a
     /// tab that has not been told otherwise. The choice itself is per tab, made
     /// on the document header's context menu; this is the value a fresh tab
@@ -638,6 +641,7 @@ impl Default for Config {
             right_panel_width: default_right_panel_width(),
             right_panel_tab: RightPanelTab::Agents,
             diff_view: DiffViewMode::Split,
+            scm_post_commit: ScmPostCommit::None,
             document_layout: DocumentLayout::default(),
             document_ratio: default_document_ratio(),
             editor_auto_save: false,
@@ -1147,6 +1151,21 @@ pub enum DiffViewMode {
     #[default]
     Split,
     Unified,
+}
+
+/// What the Source Control panel's primary Commit button does once a commit
+/// lands, for a workspace that has not chosen its own follow-up from the
+/// button's dropdown that round. Global, the same call VS Code's
+/// `git.postCommitCommand` makes: a habit like "always push after committing"
+/// belongs to the person, not to any one repository, so it has to be the same
+/// button on every workspace rather than something each one starts over.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScmPostCommit {
+    #[default]
+    None,
+    Push,
+    Sync,
 }
 
 fn default_right_panel_width() -> f32 {

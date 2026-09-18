@@ -6564,6 +6564,11 @@ impl NermalApp {
             crate::core::config::SidebarGrouping::RepoOrDirectory => 1,
             crate::core::config::SidebarGrouping::None => 2,
         };
+        let scm_post_commit_idx = match cfg.scm_post_commit {
+            crate::core::config::ScmPostCommit::None => 0,
+            crate::core::config::ScmPostCommit::Push => 1,
+            crate::core::config::ScmPostCommit::Sync => 2,
+        };
         let notify_idx = match cfg.notify_on_command_finish {
             NotifyMode::Never => 0,
             NotifyMode::Unfocused => 1,
@@ -6689,6 +6694,24 @@ impl NermalApp {
                 this.set_sidebar_grouping(grouping, cx);
             },
         );
+        let scm_post_commit_radio = self.segmented(
+            "wt-scm-post-commit",
+            &[
+                t(L10nKey::ScmCommitButton),
+                t(L10nKey::ScmCommitAndPush),
+                t(L10nKey::ScmCommitAndSync),
+            ],
+            scm_post_commit_idx,
+            cx,
+            |this, ix, _w, cx| {
+                let post_commit = match ix {
+                    0 => crate::core::config::ScmPostCommit::None,
+                    1 => crate::core::config::ScmPostCommit::Push,
+                    _ => crate::core::config::ScmPostCommit::Sync,
+                };
+                this.set_scm_post_commit(post_commit, cx);
+            },
+        );
 
         v_flex()
             .child(self.section_header(t(L10nKey::SettingsWindow), cx))
@@ -6740,6 +6763,14 @@ impl NermalApp {
                 t(L10nKey::SettingsDiffPreviewFromCounts),
                 t(L10nKey::SettingsDiffPreviewFromCountsDesc),
                 sidebar_diff_switch,
+                cx,
+            ))
+            .child(self.section_rule(cx))
+            .child(self.section_header(t(L10nKey::SettingsSourceControl), cx))
+            .child(self.settings_row(
+                t(L10nKey::SettingsScmPostCommit),
+                t(L10nKey::SettingsScmPostCommitDesc),
+                scm_post_commit_radio,
                 cx,
             ))
             .child(self.section_rule(cx))

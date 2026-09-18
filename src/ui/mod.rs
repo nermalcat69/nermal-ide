@@ -9,6 +9,7 @@ pub mod file_copy;
 pub mod file_tree;
 pub mod forwards;
 pub mod git_heatmap;
+pub(crate) mod gpu_usage;
 pub mod hints;
 pub mod home;
 #[allow(dead_code)]

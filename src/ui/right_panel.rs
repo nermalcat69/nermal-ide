@@ -265,6 +265,13 @@ pub(crate) struct WorkspaceUsage {
     /// Every process under the daemon, heaviest first — what backs the
     /// per-process breakdown under the aggregate numbers.
     pub(crate) processes: Vec<ProcessUsage>,
+    /// The busiest GPU's utilization, machine-wide — not scoped to the
+    /// daemon's own processes, unlike everything else here, because no
+    /// platform hands out GPU time per process to an unprivileged reader.
+    /// `None` when nothing on this machine can answer the question at all
+    /// (see `gpu_usage`), which is what tells the panel to hide the row
+    /// rather than show a wrong zero.
+    pub(crate) gpu_percent: Option<f32>,
 }
 
 #[derive(Clone)]
@@ -343,6 +350,7 @@ fn sample_workspace_usage() -> Option<WorkspaceUsage> {
         memory_bytes,
         process_count: seen.len(),
         processes,
+        gpu_percent: crate::ui::gpu_usage::sample(),
     })
 }
 
@@ -2030,6 +2038,9 @@ impl NermalApp {
                     .py(px(4.))
                     .gap(px(10.))
                     .child(self.usage_stat(t(L10nKey::PanelUsageCpu), format!("{:.1}%", usage.cpu_percent), cx))
+                    .children(usage.gpu_percent.map(|gpu| {
+                        self.usage_stat(t(L10nKey::PanelUsageGpu), format!("{gpu:.1}%"), cx)
+                    }))
                     .child(self.usage_stat(t(L10nKey::PanelUsageMemory), format_memory(usage.memory_bytes), cx))
                     .child(self.usage_stat(
                         t(L10nKey::PanelUsageProcesses),
@@ -2329,18 +2340,32 @@ impl NermalApp {
                 .get(&row.pane_id)
                 .filter(|&&bytes| bytes > 0)
                 .map(|&bytes| format_memory(bytes));
-            let rename_tile = action_strip(&row_id, sf.hover).child(
-                self.info_tile_icon(
-                    ("panel-agent-rename", i),
-                    Icon::empty().path("icons/pencil.svg"),
-                    t(L10nKey::CmdRenameTab),
-                    cx,
+            let kill_leaf = row.leaf.clone();
+            let rename_tile = action_strip(&row_id, sf.hover)
+                .child(
+                    self.info_tile_icon(
+                        ("panel-agent-rename", i),
+                        Icon::empty().path("icons/pencil.svg"),
+                        t(L10nKey::CmdRenameTab),
+                        cx,
+                    )
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        cx.stop_propagation();
+                        this.start_rename(tab_index, window, cx);
+                    })),
                 )
-                .on_click(cx.listener(move |this, _, window, cx| {
-                    cx.stop_propagation();
-                    this.start_rename(tab_index, window, cx);
-                })),
-            );
+                .child(
+                    self.info_tile_icon(
+                        ("panel-agent-kill", i),
+                        Icon::empty().path("icons/octagon-x.svg"),
+                        t(L10nKey::PanelKillProcess),
+                        cx,
+                    )
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        cx.stop_propagation();
+                        this.kill_instance(tab_index, kill_leaf.clone(), window, cx);
+                    })),
+                );
             list = list.child(
                 h_flex()
                     .id(row_id.clone())
