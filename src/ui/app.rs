@@ -2292,6 +2292,22 @@ impl NermalApp {
         self.set_ui_font_size(Config::default().ui_font_size, cx);
     }
 
+    /// `Cmd +`/`Cmd -`/`Cmd 0`: a zoom the user reaches for from anywhere in
+    /// the window, not just with a terminal focused, so it has to read as
+    /// "make the app bigger" rather than "make the terminal bigger" — moving
+    /// both the terminal grid and the rest of the UI's rem together. The
+    /// Settings panel keeps its own separate +/- rows for the two, for
+    /// someone who wants them apart.
+    pub(crate) fn change_all_font_sizes(&mut self, delta: f32, cx: &mut Context<Self>) {
+        self.change_font_size(delta, cx);
+        self.change_ui_font_size(delta, cx);
+    }
+
+    pub(crate) fn reset_all_font_sizes(&mut self, cx: &mut Context<Self>) {
+        self.reset_font_size(cx);
+        self.reset_ui_font_size(cx);
+    }
+
     fn set_line_height(&mut self, mul: f32, cx: &mut Context<Self>) {
         let mul = mul.clamp(LINE_HEIGHT_MIN, LINE_HEIGHT_MAX);
         self.line_height = mul;
@@ -5538,7 +5554,7 @@ impl NermalApp {
             ToggleLeftPanel => self.toggle_left_panel(cx),
             ToggleRightPanel => self.toggle_right_panel(cx),
             ShowRightPanel(tab) => self.set_right_panel_tab(tab, cx),
-            ResetFontSize => self.reset_font_size(cx),
+            ResetFontSize => self.reset_all_font_sizes(cx),
             FindInTerminal => {
                 if let Some(leaf) = self.focused_leaf(window, cx) {
                     leaf.update(cx, |view, cx| view.open_search(window, cx));
@@ -8191,14 +8207,14 @@ impl Render for NermalApp {
                     this.activate_visual(8, window, cx)
                 }))
                 .on_action(cx.listener(|this, _: &IncreaseFontSize, _window, cx| {
-                    this.change_font_size(FONT_SIZE_STEP, cx)
+                    this.change_all_font_sizes(FONT_SIZE_STEP, cx)
                 }))
                 .on_action(cx.listener(|this, _: &DecreaseFontSize, _window, cx| {
-                    this.change_font_size(-FONT_SIZE_STEP, cx)
+                    this.change_all_font_sizes(-FONT_SIZE_STEP, cx)
                 }))
-                .on_action(
-                    cx.listener(|this, _: &ResetFontSize, _window, cx| this.reset_font_size(cx)),
-                )
+                .on_action(cx.listener(|this, _: &ResetFontSize, _window, cx| {
+                    this.reset_all_font_sizes(cx)
+                }))
                 .on_action(cx.listener(|this, _: &TogglePalette, window, cx| {
                     this.toggle_palette(window, cx)
                 }))
