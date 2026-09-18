@@ -1,5 +1,7 @@
 # Nermal
 
+<img width="1470" height="956" alt="image" src="https://github.com/user-attachments/assets/c5a7bf14-16ad-4a21-9004-6571c79c685a" />
+
 A terminal workbench with a built-in editor: persistent sessions, remote work, and AI agent support.
 
 Pure Rust · GPU rendering on Zed's gpui · VT core from Alacritty
