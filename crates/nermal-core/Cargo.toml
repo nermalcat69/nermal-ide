@@ -66,7 +66,7 @@ smallvec.workspace = true
 # behind one blocking `Read`/`Write`/`resize` API. This is what lets
 # `daemon::pane` share a single code path across platforms instead of
 # hand-rolling fd/ioctl/signal code.
-portable-pty = "0.8"
+portable-pty = "0.9"
 
 # Native (pure-Rust) SSH client for the daemon's russh session engine
 # (`daemon::ssh`) — see the root manifest's note for why we own this stack
@@ -156,7 +156,7 @@ system-configuration-sys = { version = "0.6", optional = true }
 # against a random token it writes into the user-private port file. `getrandom`
 # is the OS CSPRNG that mints that token.
 [target.'cfg(windows)'.dependencies]
-getrandom = "0.3"
+getrandom = "0.4"
 
 # Toolhelp process enumeration + `TerminateProcess`, used by `daemon::winproc` to
 # title a pane by its foreground command and to tear down a shell's descendant
@@ -165,7 +165,7 @@ getrandom = "0.3"
 # pane-spawn time so a long-lived daemon stops handing out its startup `PATH`.
 # `IpHelper` is `GetExtendedTcpTable`, which is how `daemon::procinfo` answers
 # the Info tab's Ports section here — the platform has no `lsof` to shell out to.
-windows-sys = { version = "0.59", features = [
+windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_NetworkManagement_IpHelper",
     "Win32_Security",
