@@ -24,6 +24,12 @@ Native builds for macOS, Windows, and Linux on [**Releases**](https://github.com
 | **Windows** | `…-setup.exe` · portable `….zip` | |
 | **Linux** | `…-x86_64.AppImage` | `chmod +x` and run |
 
+macOS builds aren't notarized yet, so Gatekeeper will refuse to open `Nermal.app` the first time. Clear the quarantine flag once after installing:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/Nermal.app
+```
+
 ## Documentation
 
 Full documentation lives in [**`docs/`**](docs/), including [keyboard shortcuts](docs/reference/keyboard-shortcuts.mdx), [config.json](docs/reference/configuration.mdx), and the [CLI reference](docs/cli/reference.mdx).
