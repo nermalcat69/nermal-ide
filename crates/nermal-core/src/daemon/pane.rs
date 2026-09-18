@@ -1207,6 +1207,31 @@ impl MasterPty for AdoptedMaster {
             _ => None,
         }
     }
+
+    /// `portable-pty` 0.9's own unix backend does this once at pty creation
+    /// and caches the result; we adopt an already-open fd instead of creating
+    /// one, so there is no creation-time hook to cache it from — this mirrors
+    /// its `ttyname_r` loop directly instead.
+    fn tty_name(&self) -> Option<std::path::PathBuf> {
+        use std::os::fd::AsRawFd as _;
+        let raw = self.fd.as_raw_fd();
+        let mut buf = vec![0 as std::ffi::c_char; 128];
+        loop {
+            let res = unsafe { libc::ttyname_r(raw, buf.as_mut_ptr(), buf.len()) };
+            if res == libc::ERANGE {
+                if buf.len() > 64 * 1024 {
+                    return None;
+                }
+                buf.resize(buf.len() * 2, 0 as std::ffi::c_char);
+                continue;
+            }
+            if res != 0 {
+                return None;
+            }
+            let cstr = unsafe { std::ffi::CStr::from_ptr(buf.as_ptr()) };
+            return Some(std::path::PathBuf::from(cstr.to_string_lossy().into_owned()));
+        }
+    }
 }
 
 /// A child this process inherited from its own previous image.
