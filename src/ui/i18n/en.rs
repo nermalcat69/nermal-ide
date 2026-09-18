@@ -26,6 +26,8 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::HomeOpenFolder => "Open a Folder…",
         L10nKey::HomeOpenFile => "Open a File…",
         L10nKey::HomeCreateWorkspace => "Create New Workspace…",
+        L10nKey::HomeCreateWorkspaceConfirm => "Create",
+        L10nKey::HomeChangeFolder => "Change",
         L10nKey::HomeRecentWorkspaces => "Recent Workspaces",
         L10nKey::HomeNoRecentWorkspaces => "No recent workspaces yet",
         L10nKey::HomeUntitledWorkspace => "Untitled Workspace",

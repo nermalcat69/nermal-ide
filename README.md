@@ -24,7 +24,7 @@ Native builds for macOS, Windows, and Linux on [**Releases**](https://github.com
 |---|---|---|
 | **macOS** | `…-macos-arm64.dmg` · `…-x86_64.dmg` | drag into Applications |
 | **Windows** | `…-setup.exe` · portable `….zip` | |
-| **Linux** | `…-x86_64.AppImage` | `chmod +x` and run |
+| **Linux** | `…-x86_64.AppImage` · `….rpm` · `….tar.gz` | `chmod +x` and run, or `dnf install`/`rpm -i` on Fedora/openSUSE/RHEL |
 
 macOS builds aren't notarized yet, so Gatekeeper will refuse to open `Nermal.app` the first time. Clear the quarantine flag once after installing:
 

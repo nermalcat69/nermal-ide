@@ -94,6 +94,8 @@ l10n_keys! {
     HomeOpenFolder,
     HomeOpenFile,
     HomeCreateWorkspace,
+    HomeCreateWorkspaceConfirm,
+    HomeChangeFolder,
     HomeRecentWorkspaces,
     HomeNoRecentWorkspaces,
     HomeUntitledWorkspace,

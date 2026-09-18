@@ -26,6 +26,8 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::HomeOpenFolder => "打开文件夹…",
         L10nKey::HomeOpenFile => "打开文件…",
         L10nKey::HomeCreateWorkspace => "创建新工作区…",
+        L10nKey::HomeCreateWorkspaceConfirm => "创建",
+        L10nKey::HomeChangeFolder => "更改",
         L10nKey::HomeRecentWorkspaces => "最近的工作区",
         L10nKey::HomeNoRecentWorkspaces => "暂无最近的工作区",
         L10nKey::HomeUntitledWorkspace => "未命名工作区",

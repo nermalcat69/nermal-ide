@@ -172,11 +172,13 @@ pub(crate) fn key_hint(action: &str, cx: &App) -> Option<String> {
 }
 
 impl NermalApp {
-    /// Opens the native folder picker, then creates a fresh workspace rooted
-    /// there — the folder is what makes it a project rather than the bare
-    /// shell `new_tab` opens. Mirrors `switcher.rs::switcher_form_pick_folder`
-    /// and its create-flow, for the same action reached from the home page
-    /// instead of the "+ New Workspace" form.
+    /// Opens the native folder picker and parks the pick on `home_new_workspace`
+    /// rather than creating the workspace immediately — the Create row that
+    /// appears once a folder is chosen is what makes the pick reversible
+    /// (`Change` re-opens the picker, and clicking `HomeAction::CreateWorkspace`
+    /// again before confirming just re-runs this). Mirrors
+    /// `switcher.rs::switcher_form_pick_folder`, which parks the same way on
+    /// its own form for the same reason.
     fn home_open_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let rx = cx.prompt_for_paths(gpui::PathPromptOptions {
             files: false,
@@ -191,12 +193,28 @@ impl NermalApp {
             let Some(folder) = paths.pop() else {
                 return;
             };
-            let _ = this.update_in(cx, |this, window, cx| {
-                this.switch_workspace(None, window, cx);
-                this.new_tab_with_cwd(Some(folder), None, window, cx);
+            let _ = this.update_in(cx, |this, _window, cx| {
+                this.home_new_workspace = Some(folder);
+                cx.notify();
             });
         })
         .detach();
+    }
+
+    /// The folder parked by `home_open_folder`, made into a workspace — the
+    /// same two calls `home_open_folder` used to make on its own before there
+    /// was a Create row to confirm through.
+    fn commit_home_new_workspace(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(folder) = self.home_new_workspace.take() else {
+            return;
+        };
+        self.switch_workspace(None, window, cx);
+        self.new_tab_with_cwd(Some(folder), None, window, cx);
+    }
+
+    fn cancel_home_new_workspace(&mut self, cx: &mut Context<Self>) {
+        self.home_new_workspace = None;
+        cx.notify();
     }
 
     /// Opens the native file picker, then opens the file in the built-in
@@ -310,6 +328,57 @@ impl NermalApp {
 
         let mut action_column = v_flex().gap_2().w(px(260.)).text_sm().text_color(muted);
         for action in HomeAction::ALL {
+            // A folder is already parked: the row this action normally draws
+            // becomes the Create/Change/Cancel confirmation instead of a
+            // plain, re-clickable label — clicking `CreateWorkspace` again
+            // here just re-opens the picker on `home_new_workspace`.
+            if action == HomeAction::CreateWorkspace
+                && let Some(folder) = self.home_new_workspace.clone()
+            {
+                let home = crate::ui::path_display::local_home();
+                action_column = action_column.child(
+                    v_flex()
+                        .gap_1()
+                        .child(
+                            div()
+                                .text_xs()
+                                .truncate()
+                                .child(display_path(&folder, home.as_deref())),
+                        )
+                        .child(
+                            h_flex()
+                                .gap_2()
+                                .child(
+                                    Button::new("home-new-workspace-change")
+                                        .label(t(L10nKey::HomeChangeFolder))
+                                        .ghost()
+                                        .xsmall()
+                                        .on_click(cx.listener(|this, _, window, cx| {
+                                            this.home_open_folder(window, cx)
+                                        })),
+                                )
+                                .child(
+                                    Button::new("home-new-workspace-cancel")
+                                        .label(t(L10nKey::Cancel))
+                                        .ghost()
+                                        .xsmall()
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.cancel_home_new_workspace(cx)
+                                        })),
+                                )
+                                .child(
+                                    Button::new("home-new-workspace-create")
+                                        .label(t(L10nKey::HomeCreateWorkspaceConfirm))
+                                        .primary()
+                                        .xsmall()
+                                        .on_click(cx.listener(|this, _, window, cx| {
+                                            this.commit_home_new_workspace(window, cx)
+                                        })),
+                                ),
+                        ),
+                );
+                continue;
+            }
             let label = action.label();
             let keys = action
                 .keymap_action()
@@ -345,6 +414,17 @@ impl NermalApp {
             .items_center()
             .justify_center()
             .gap(px(48.))
+            // Enter is the keyboard half of the Create row above: there is no
+            // text field to carry `InputEvent::PressEnter` here, since the
+            // folder itself comes from the native picker rather than being
+            // typed, so the raw keystroke is caught on the page instead —
+            // the same way `worktree_prompt.rs` catches Escape on its own
+            // backdrop rather than routing it through a field.
+            .on_key_down(cx.listener(|this, ev: &gpui::KeyDownEvent, window, cx| {
+                if ev.keystroke.key == "enter" && this.home_new_workspace.is_some() {
+                    this.commit_home_new_workspace(window, cx);
+                }
+            }))
             .child(logo)
             .children(failure)
             .children(status)
@@ -551,6 +631,50 @@ mod strip_layout_tests {
             long_message.right() <= long_card.right(),
             "and never reaches past the card: {long_message:?} in {long_card:?}"
         );
+    }
+}
+
+#[cfg(test)]
+mod new_workspace_tests {
+    use crate::ui::app::test_window::{harness, harness_with_tabs};
+    use gpui::TestAppContext;
+
+    /// A brand new window (no tabs, no restored document) is exactly when
+    /// `render`'s own `match` picks `render_home` — and the sidebar and right
+    /// panel have nothing to frame there, so this is the switch `render` gates
+    /// them on.
+    #[gpui::test]
+    fn a_tabless_window_is_showing_home(cx: &mut TestAppContext) {
+        let (app, vcx) = harness(cx);
+        assert!(
+            app.read_with(&vcx, |app, _| app.showing_home()),
+            "the harness starts with no tabs"
+        );
+
+        let (app, vcx, _streams) = harness_with_tabs(cx, 1);
+        assert!(
+            !app.read_with(&vcx, |app, _| app.showing_home()),
+            "a real tab means render draws a pane, not the dashboard"
+        );
+    }
+
+    /// `Cancel` on the Create row is what a folder picked by mistake, or a
+    /// picker cancelled from the OS side after all, backs out of — leaving
+    /// the row gone and nothing created.
+    #[gpui::test]
+    fn cancelling_a_picked_folder_clears_it_without_creating_anything(cx: &mut TestAppContext) {
+        let (app, mut vcx) = harness(cx);
+        app.update_in(&mut vcx, |app, _, cx| {
+            app.home_new_workspace = Some(std::path::PathBuf::from("/tmp"));
+            app.cancel_home_new_workspace(cx);
+        });
+        app.read_with(&vcx, |app, _| {
+            assert!(
+                app.home_new_workspace.is_none(),
+                "cancel must drop the parked folder"
+            );
+            assert!(app.showing_home(), "and no tab was created in its place");
+        });
     }
 }
 

@@ -59,7 +59,7 @@ jobs:
           sudo apt-get install -y pkg-config cmake clang libxkbcommon-dev \
             libxkbcommon-x11-dev libfontconfig1-dev libfreetype6-dev \
             libwayland-dev libx11-dev libxcb1-dev libzstd-dev libssl-dev \
-            libkrb5-dev libfuse2 file imagemagick
+            libkrb5-dev libfuse2 file imagemagick rpm
           echo "LIBGSSAPI_IMPL=mit" >> "$GITHUB_ENV"
 
       - uses: dtolnay/rust-toolchain@stable
@@ -116,6 +116,14 @@ jobs:
         if: matrix.os == 'linux'
         working-directory: nermal
         run: bash .github/scripts/bundle-appimage.sh "${{ matrix.target }}" "${{ matrix.arch }}"
+
+      # A native package for Fedora/openSUSE/RHEL-family distros, installed
+      # and updated through the system package manager rather than the
+      # in-app updater — see bundle-rpm.sh for why it carries no updater.
+      - name: Package Linux RPM
+        if: matrix.os == 'linux'
+        working-directory: nermal
+        run: bash .github/scripts/bundle-rpm.sh "${{ matrix.target }}" "${{ matrix.arch }}"
 
       # The in-app updater refuses an image whose bundled helper or stamped
       # version is wrong — on the user's machine, after the download. Check the
@@ -182,6 +190,7 @@ jobs:
             nermal/dist/*.zip
             nermal/dist/*-setup.exe
             nermal/dist/*.AppImage
+            nermal/dist/*.rpm
           if-no-files-found: error
 
   # The headless server binary remote workspaces install on the far machine

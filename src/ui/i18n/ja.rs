@@ -26,6 +26,8 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::HomeOpenFolder => "フォルダを開く…",
         L10nKey::HomeOpenFile => "ファイルを開く…",
         L10nKey::HomeCreateWorkspace => "新しいワークスペースを作成…",
+        L10nKey::HomeCreateWorkspaceConfirm => "作成",
+        L10nKey::HomeChangeFolder => "変更",
         L10nKey::HomeRecentWorkspaces => "最近のワークスペース",
         L10nKey::HomeNoRecentWorkspaces => "最近のワークスペースはありません",
         L10nKey::HomeUntitledWorkspace => "無題のワークスペース",

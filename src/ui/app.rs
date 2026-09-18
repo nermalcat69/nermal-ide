@@ -893,6 +893,11 @@ pub struct NermalApp {
     /// home page is otherwise perfectly still: it cost more than a live
     /// terminal did, on a window with nothing open in it.
     pub(crate) home_cursor_on: bool,
+    /// The folder chosen for a workspace being created from the home page,
+    /// while its Create/Cancel row is up. `None` means that row is not shown
+    /// at all — picking a folder is what puts it up, since there is nothing
+    /// to confirm before then.
+    pub(crate) home_new_workspace: Option<std::path::PathBuf>,
     pub(crate) shells: ShellInventory,
     pub(crate) shells_host: HostId,
     pub(crate) loopback_panel: LoopbackForwardPanelState,
@@ -1550,6 +1555,7 @@ impl NermalApp {
             record_gen: 0,
             home_focus: cx.focus_handle(),
             home_cursor_on: true,
+            home_new_workspace: None,
             shells: ShellInventory::default(),
             shells_host: HostId::LOCAL,
             loopback_panel: LoopbackForwardPanelState {
@@ -7737,6 +7743,19 @@ impl ForwardRoute {
     }
 }
 
+impl NermalApp {
+    /// Whether `render` is about to draw the recent-workspaces dashboard
+    /// rather than a pane or the empty-document placeholder — the same
+    /// condition its `match` picks `render_home` on. The sidebar and the
+    /// right panel are chrome for panes that do not exist yet here, so they
+    /// have nothing to frame; showing them anyway is what made a brand new
+    /// workspace look like a half-drawn window instead of a blank start
+    /// screen.
+    pub(crate) fn showing_home(&self) -> bool {
+        self.tabs.is_empty() && self.document_front().is_none()
+    }
+}
+
 impl Render for NermalApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         #[cfg(test)]
@@ -7799,7 +7818,7 @@ impl Render for NermalApp {
         // Asked through the predicate the right panel sizes itself against —
         // two spellings of "is the rail up" is one more than the layout can
         // afford to have disagree.
-        let rail = self.sidebar_open(cx);
+        let rail = self.sidebar_open(cx) && !self.showing_home();
         // Both read before the strip and the sidebar are built: a tab held out
         // over the layout suspends the reorder, which is what those two ask
         // what to draw, and a pane held over *them* is measured against where
@@ -7978,7 +7997,9 @@ impl Render for NermalApp {
                 )
             }
         };
-        let right_panel = self.render_right_panel(window, cx);
+        let right_panel = (!self.showing_home())
+            .then(|| self.render_right_panel(window, cx))
+            .flatten();
         // On Windows and Linux the window controls live at the right end of
         // the title bar, so a right panel makes the bar span the workspace
         // rather than sit inside the terminal column with a panel drawn to
