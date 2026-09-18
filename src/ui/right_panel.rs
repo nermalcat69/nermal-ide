@@ -2867,7 +2867,7 @@ impl NermalApp {
             |this, _input, ev: &InputEvent, window, cx| {
                 match ev {
                     InputEvent::PressEnter { .. } => this.commit_new_instance_category(window, cx),
-                    InputEvent::Blur => this.right_panel.instances_new_category = None,
+                    InputEvent::Blur => this.cancel_new_instance_category(cx),
                     _ => {}
                 }
                 cx.notify();
@@ -2875,6 +2875,12 @@ impl NermalApp {
         );
         self.right_panel.instances_new_category = Some(input);
         self.right_panel.instances_new_category_sub = Some(sub);
+        cx.notify();
+    }
+
+    fn cancel_new_instance_category(&mut self, cx: &mut Context<Self>) {
+        self.right_panel.instances_new_category = None;
+        self.right_panel.instances_new_category_sub = None;
         cx.notify();
     }
 
