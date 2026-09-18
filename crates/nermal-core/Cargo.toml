@@ -165,7 +165,7 @@ getrandom = "0.4"
 # pane-spawn time so a long-lived daemon stops handing out its startup `PATH`.
 # `IpHelper` is `GetExtendedTcpTable`, which is how `daemon::procinfo` answers
 # the Info tab's Ports section here — the platform has no `lsof` to shell out to.
-windows-sys = { version = "0.59", features = [
+windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_NetworkManagement_IpHelper",
     "Win32_Security",

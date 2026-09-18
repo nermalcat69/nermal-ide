@@ -50,7 +50,7 @@ tempfile = "3"
 # The e2e harness puts its throwaway daemon in a Job Object wired to
 # KILL_ON_JOB_CLOSE, so a hard-killed test run cannot leak servers.
 [target.'cfg(windows)'.dev-dependencies]
-windows-sys = { version = "0.59", features = [
+windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Security",
     "Win32_System_Console",
