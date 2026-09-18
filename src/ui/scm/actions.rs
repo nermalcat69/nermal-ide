@@ -135,6 +135,56 @@ impl NermalApp {
         .detach();
     }
 
+    /// Appends `rel` (repo-root-relative, e.g. `src/secrets.rs`) to the
+    /// repository's top-level `.gitignore`, creating the file if it does not
+    /// exist yet. Root-anchored (a leading `/`) so this ignores exactly the
+    /// file the row named, not every file that happens to share its name
+    /// elsewhere in the tree.
+    ///
+    /// Goes through `Host::read_file`/`write_file` directly rather than a
+    /// `GitOp` — this is a plain text edit, not a git operation, and git only
+    /// finds out about it the way it finds out about any other working-tree
+    /// change: the next status read, which `scm_invalidate` asks for below.
+    pub(crate) fn scm_add_to_gitignore(
+        &mut self,
+        repo: RepoKey,
+        rel: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(host) = HostRegistry::get(cx, repo.host) else {
+            return;
+        };
+        const MAX_GITIGNORE_BYTES: u64 = 1024 * 1024;
+        let gitignore = repo.root.join(".gitignore");
+        let entry = format!("/{rel}");
+        let op_repo = repo.clone();
+        crate::ui::host_ops::HostOps::run_or_notify(
+            host,
+            window,
+            cx,
+            t(L10nKey::ScmAddToGitignore),
+            move |h| {
+                let existing = match h.read_file(&gitignore, MAX_GITIGNORE_BYTES) {
+                    Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+                    // No .gitignore yet is not a failure to report — it is
+                    // the common case for a repo's first ignored file.
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+                    Err(e) => return Err(e),
+                };
+                let Some(updated) = gitignore_with_entry_added(&existing, &entry) else {
+                    return Ok(());
+                };
+                h.write_file(&gitignore, updated.as_bytes())?;
+                Ok(())
+            },
+            move |app, (), _window, cx| {
+                app.scm_invalidate(op_repo.host, &op_repo.root, cx);
+                cx.notify();
+            },
+        );
+    }
+
     pub(crate) fn run_scm_action(
         &mut self,
         intent: ScmIntent,
@@ -508,12 +558,61 @@ fn confirm_verb(op: &GitOp, loss: Destructive) -> &'static str {
     }
 }
 
+/// The `.gitignore` content after adding `entry`, or `None` when it is
+/// already there — an exact line match, so a `.gitignore` line's own leading
+/// `/` and trailing whitespace both have to agree with `entry`'s.
+fn gitignore_with_entry_added(existing: &str, entry: &str) -> Option<String> {
+    if existing.lines().any(|line| line.trim() == entry) {
+        return None;
+    }
+    let mut updated = existing.to_string();
+    if !updated.is_empty() && !updated.ends_with('\n') {
+        updated.push('\n');
+    }
+    updated.push_str(entry);
+    updated.push('\n');
+    Some(updated)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use nermal_core::core::git::status::{
         ChangeCode, EntryKind, HeadState, RepoPath, StatusEntry, WorkingTreeStatus,
     };
+
+    #[test]
+    fn a_missing_gitignore_gets_created_with_just_the_entry() {
+        assert_eq!(
+            gitignore_with_entry_added("", "/src/secrets.rs"),
+            Some("/src/secrets.rs\n".to_string())
+        );
+    }
+
+    #[test]
+    fn an_existing_gitignore_without_a_trailing_newline_still_gets_one_before_the_entry() {
+        assert_eq!(
+            gitignore_with_entry_added("/target", "/src/secrets.rs"),
+            Some("/target\n/src/secrets.rs\n".to_string())
+        );
+    }
+
+    #[test]
+    fn an_entry_already_present_is_left_alone() {
+        assert_eq!(
+            gitignore_with_entry_added("/target\n/src/secrets.rs\n", "/src/secrets.rs"),
+            None,
+            "adding the same file twice must not duplicate the line"
+        );
+    }
+
+    #[test]
+    fn a_present_entry_with_surrounding_whitespace_still_counts() {
+        assert_eq!(
+            gitignore_with_entry_added("  /src/secrets.rs  \n", "/src/secrets.rs"),
+            None
+        );
+    }
 
     fn entry(path: &str, index: ChangeCode, worktree: ChangeCode, kind: EntryKind) -> StatusEntry {
         StatusEntry {

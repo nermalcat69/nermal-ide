@@ -1805,6 +1805,19 @@ impl NermalApp {
             );
         }
 
+        menu = menu
+            .separator()
+            .item(PopupMenuItem::new(t(L10nKey::ScmAddToGitignore)).on_click({
+                let app = app.clone();
+                let repo = repo.clone();
+                let rel = rel.clone();
+                move |_, window, cx| {
+                    let _ = app.update(cx, |this, cx| {
+                        this.scm_add_to_gitignore(repo.clone(), rel.clone(), window, cx)
+                    });
+                }
+            }));
+
         if let Some(op) = verb_op(RowVerb::Discard, group, vec![entry.path.clone()]) {
             menu = menu.separator().item(
                 PopupMenuItem::element(move |_window, _cx| {

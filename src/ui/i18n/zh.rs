@@ -1151,6 +1151,7 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::ScmUnstage => "取消暂存",
         L10nKey::ScmUnstageAll => "取消暂存全部更改",
         L10nKey::ScmDiscard => "放弃更改",
+        L10nKey::ScmAddToGitignore => "添加到 .gitignore",
         L10nKey::ScmDiscardAll => "放弃全部更改",
         L10nKey::ScmDiscardConfirm => "放弃对 {path} 的更改？此操作无法撤销。",
         L10nKey::ScmOpenConflict => "解决冲突",

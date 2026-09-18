@@ -1279,6 +1279,7 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::ScmUnstage => "ステージを取り消す",
         L10nKey::ScmUnstageAll => "すべてのステージを取り消す",
         L10nKey::ScmDiscard => "変更を破棄",
+        L10nKey::ScmAddToGitignore => ".gitignoreに追加",
         L10nKey::ScmDiscardAll => "すべての変更を破棄",
         L10nKey::ScmDiscardConfirm => "{path} の変更を破棄しますか？元に戻せません。",
         L10nKey::ScmOpenConflict => "競合を解決",

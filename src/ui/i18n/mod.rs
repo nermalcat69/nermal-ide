@@ -905,6 +905,7 @@ l10n_keys! {
     ScmUnstage,
     ScmUnstageAll,
     ScmDiscard,
+    ScmAddToGitignore,
     ScmDiscardAll,
     ScmDiscardConfirm,
     ScmOpenConflict,

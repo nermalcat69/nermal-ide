@@ -1208,6 +1208,7 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::ScmUnstage => "Unstage Changes",
         L10nKey::ScmUnstageAll => "Unstage All Changes",
         L10nKey::ScmDiscard => "Discard Changes",
+        L10nKey::ScmAddToGitignore => "Add to .gitignore",
         L10nKey::ScmDiscardAll => "Discard All Changes",
         L10nKey::ScmDiscardConfirm => "Discard changes to {path}? This cannot be undone.",
         L10nKey::ScmOpenConflict => "Resolve Conflict",
