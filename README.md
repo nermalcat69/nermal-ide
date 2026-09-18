@@ -47,4 +47,4 @@ Full documentation lives in [**`docs/`**](docs/), including [keyboard shortcuts]
 
 ---
 
-Forked from [l0ng-ai/tty7](https://github.com/l0ng-ai/tty7).
+Intial Codebase was forked from [l0ng-ai/tty7](https://github.com/l0ng-ai/tty7).
