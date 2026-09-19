@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -73,6 +74,14 @@ pub(crate) struct DiffOverlayState {
     /// [`crate::ui::diff_list`]. Rebuilt only when [`RowsKey`] changes.
     pub(crate) rows: Rc<Vec<DiffRow>>,
     rows_key: Option<RowsKey>,
+    /// How far the code has been scrolled sideways, shared by every row so the
+    /// lines move as one column (and both halves of a split move together). A
+    /// list of independently laid out rows has no scroll position of its own
+    /// to hold this.
+    h_scroll: Rc<Cell<f32>>,
+    /// The longest line in `rows`, in characters — what bounds `h_scroll`.
+    /// Counted when the rows are rebuilt, not per frame.
+    widest: usize,
     /// The [`ScmData`](crate::terminal::git_data::ScmData) epoch this patch was
     /// read at, for the two sources that can go stale.
     ///
@@ -187,6 +196,8 @@ impl NermalApp {
                 .with_size_hint(DIFF_LINE_H),
             rows: Rc::new(Vec::new()),
             rows_key: None,
+            h_scroll: Rc::new(Cell::new(0.)),
+            widest: 0,
             epoch: None,
         });
         window.focus(&focus_handle, cx);
@@ -531,7 +542,7 @@ impl NermalApp {
 
         let content = match body {
             DiffBody::Message(text) => self.diff_message(text, cx),
-            DiffBody::Rows(snap) => self.diff_rows_list(overlay, snap, cx),
+            DiffBody::Rows(snap) => self.diff_rows_list(overlay, snap, window, cx),
         };
 
         let header = chrome
@@ -1055,6 +1066,7 @@ impl NermalApp {
             };
             let key = from.to_key();
             resync_list(&overlay.list, &overlay.rows, &rows);
+            overlay.widest = widest_line(&rows);
             overlay.rows = Rc::new(rows);
             overlay.rows_key = Some(key);
         } else if let Some(held) = overlay.rows_key.as_mut() {
@@ -1068,6 +1080,7 @@ impl NermalApp {
         &self,
         overlay: &DiffOverlayState,
         snap: Arc<DiffSnapshot>,
+        window: &Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let rows = Rc::clone(&overlay.rows);
@@ -1080,10 +1093,28 @@ impl NermalApp {
         // cost this list exists to avoid. `extend_diff_selection` notifies,
         // the view renders, and the list rebuilds the rows on screen from the
         // `Drag` this frame carries.
+        let mode = view_mode(cx);
+        // Code is 0.75rem (`text_xs`) in the overlay's monospace family, so
+        // one character's advance times the longest line is how wide the
+        // column of code really is.
+        let text_system = window.text_system();
+        let font_px = window.rem_size() * 0.75;
+        let char_w = text_system
+            .em_advance(text_system.resolve_font(&gpui::font(font.clone())), font_px)
+            .map_or(font_px.as_f32() * 0.6, |w| w.as_f32());
+        let max_x = max_scroll_x(
+            overlay.widest,
+            char_w,
+            overlay.list.viewport_bounds().size.width.as_f32(),
+            mode,
+        );
+        let h_scroll = Rc::clone(&overlay.h_scroll);
+        let wheel_app = app.clone();
         let drag = Drag {
             sel: overlay.selection.clone().map(Rc::new),
             selecting: overlay.selecting,
-            mode: view_mode(cx),
+            mode,
+            scroll_x: h_scroll.get().clamp(0., max_x),
         };
         let body = gpui::list(list.clone(), move |ix, _window, cx| {
             #[cfg(test)]
@@ -1102,6 +1133,25 @@ impl NermalApp {
         // padding here would be silently ignored. The rows carry their own —
         // see `diff_row_element`.
         .py_4();
+        // Sideways scrolling rides on the same wheel: the list takes the
+        // vertical part of a gesture, and this takes the horizontal part
+        // (a trackpad swipe, a tilt wheel) when that is what the gesture
+        // mostly is, so a diagonal drift while scrolling down does not shake
+        // the code left and right.
+        let body = div().size_full().child(body).on_scroll_wheel(
+            move |ev: &gpui::ScrollWheelEvent, _window, cx| {
+                let delta = ev.delta.pixel_delta(px(20.));
+                let (dx, dy) = (delta.x.as_f32(), delta.y.as_f32());
+                if dx.abs() <= dy.abs() {
+                    return;
+                }
+                let next = (h_scroll.get() - dx).clamp(0., max_x);
+                if next != h_scroll.get() {
+                    h_scroll.set(next);
+                    let _ = wheel_app.update(cx, |_, cx| cx.notify());
+                }
+            },
+        );
         // The bar reads the list's own height, and a list only counts the
         // rows it has measured. Left at that, a patch of any length would
         // report itself as one screen long and the thumb would fill the
@@ -1113,6 +1163,39 @@ impl NermalApp {
         // whole list exists to avoid.
         crate::ui::scrollbar::with_vertical_scrollbar("diff-overlay-scrollbar", body, &list)
     }
+}
+
+/// The longest code line among `rows`, in characters.
+fn widest_line(rows: &[DiffRow]) -> usize {
+    let chars = |s: &str| s.chars().count();
+    rows.iter()
+        .map(|row| match row {
+            DiffRow::Split { row, .. } => [row.left.as_ref(), row.right.as_ref()]
+                .into_iter()
+                .flatten()
+                .map(|c| chars(&c.text))
+                .max()
+                .unwrap_or(0),
+            DiffRow::Unified { row, .. } => chars(&row.text),
+            _ => 0,
+        })
+        .max()
+        .unwrap_or(0)
+}
+
+/// How far the code can scroll sideways: the width of the longest line less
+/// what a column of code has room for, plus a little air past the end so the
+/// last character is not flush against the edge. Zero when everything fits.
+fn max_scroll_x(widest: usize, char_w: f32, viewport: f32, mode: DiffViewMode) -> f32 {
+    let (room, marker_cols) = match mode {
+        // Half the width less the rule and the line-number gutter; the code
+        // carries its `+`/`−` and a space in front of it.
+        DiffViewMode::Split => ((viewport - 1.) / 2. - 42., 2.),
+        // Two gutters, the rule and the marker column stand in front of the
+        // one column of code.
+        DiffViewMode::Unified => (viewport - 2. * 34. - 1. - 12., 0.),
+    };
+    ((widest as f32 + marker_cols) * char_w - room + 12.).max(0.)
 }
 
 /// Counts the rows the list actually built, so a test can tell that a patch of
@@ -1148,6 +1231,8 @@ struct Drag {
     /// The view the rows on screen are drawn in, which is the view a press
     /// starts its selection in.
     mode: DiffViewMode,
+    /// How far the code is scrolled sideways this frame, in px.
+    scroll_x: f32,
 }
 
 impl Drag {
@@ -1726,14 +1811,25 @@ fn diff_split_cell(
                 .text_color(cx.theme().muted_foreground.opacity(0.7))
                 .child(cell.no.map(|n| n.to_string()).unwrap_or_default()),
         )
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .truncate()
-                .child(format!("{marker} {}", cell.text)),
-        )
+        .child(scrolled_code(
+            format!("{marker} {}", cell.text),
+            drag.scroll_x,
+        ))
         .into_any_element()
+}
+
+/// A line of code that is clipped by its column and shifted left by `scroll_x`
+/// rather than cut off with an ellipsis, so the part that does not fit is one
+/// scroll away.
+fn scrolled_code(text: impl Into<SharedString>, scroll_x: f32) -> gpui::Div {
+    div().flex_1().min_w_0().overflow_hidden().child(
+        div()
+            .relative()
+            .left(px(-scroll_x))
+            .flex_shrink_0()
+            .whitespace_nowrap()
+            .child(text.into()),
+    )
 }
 
 /// One line of the unified view.
@@ -1796,7 +1892,7 @@ fn diff_unified_row(
                 .text_color(marker_color)
                 .child(unified_marker(row.kind)),
         )
-        .child(div().flex_1().min_w_0().truncate().child(row.text.clone()))
+        .child(scrolled_code(row.text.clone(), drag.scroll_x))
 }
 
 /// Which layout the overlay draws. One setting for the window, not one per
@@ -3394,6 +3490,8 @@ mod selection_gpui_tests {
                     .with_size_hint(DIFF_LINE_H),
                 rows: Rc::new(Vec::new()),
                 rows_key: None,
+                h_scroll: Rc::new(Cell::new(0.)),
+                widest: 0,
                 epoch: None,
             });
         });
@@ -3596,5 +3694,49 @@ mod selection_gpui_tests {
             Some("b\nc\nB"),
             "the range still names the same three lines of the same file"
         );
+    }
+}
+
+#[cfg(test)]
+mod sideways_scroll_tests {
+    use super::*;
+    use crate::ui::diff_rows::{SplitCell, SplitRow};
+
+    /// Lines that fit leave nothing to scroll to; ones that do not can be
+    /// scrolled exactly as far as they overhang (plus the air past the end).
+    #[test]
+    fn the_code_scrolls_only_as_far_as_it_overhangs() {
+        for mode in [DiffViewMode::Split, DiffViewMode::Unified] {
+            assert_eq!(max_scroll_x(10, 7., 1200., mode), 0., "short lines fit");
+            let far = max_scroll_x(400, 7., 1200., mode);
+            assert!(far > 0., "a 400-column line overhangs a 1200px view");
+            assert!(
+                max_scroll_x(400, 7., 1800., mode) < far,
+                "a wider window needs less scrolling"
+            );
+        }
+    }
+
+    #[test]
+    fn the_widest_line_of_either_half_bounds_the_scroll() {
+        let cell = |text: &str| SplitCell {
+            no: Some(1),
+            text: text.to_string(),
+            changed: false,
+            line: 0,
+        };
+        let row = |left: &str, right: &str| DiffRow::Split {
+            row: SplitRow {
+                left: Some(cell(left)),
+                right: Some(cell(right)),
+            },
+            at: crate::ui::diff_list::RowAt {
+                path: "a.rs".into(),
+                id: crate::ui::diff_rows::RowId { hunk: 0, row: 0 },
+            },
+        };
+        let rows = vec![DiffRow::Gap, row("ab", "abcdef"), row("abcdefghij", "a")];
+        assert_eq!(widest_line(&rows), 10);
+        assert_eq!(widest_line(&[]), 0);
     }
 }
