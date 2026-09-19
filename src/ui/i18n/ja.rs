@@ -1176,7 +1176,6 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::PanelInstanceUnnamed => "ターミナル",
         L10nKey::PaneMoveToSidebar => "サイドバーに移動",
         L10nKey::PanePopOut => "新しいウィンドウで開く",
-        L10nKey::PaneMovedToSidebar => "サイドバーに移動しました",
         L10nKey::PaneMoveBackToMain => "メインエリアに戻す",
         L10nKey::PaneShowHere => "ここに表示",
         L10nKey::PanelAllInstances => "すべて",

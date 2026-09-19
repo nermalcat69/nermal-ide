@@ -1062,7 +1062,6 @@ pub fn translate_zh(key: L10nKey) -> Option<&'static str> {
         L10nKey::PanelInstanceUnnamed => "终端",
         L10nKey::PaneMoveToSidebar => "移到侧边栏",
         L10nKey::PanePopOut => "在新窗口中打开",
-        L10nKey::PaneMovedToSidebar => "已移到侧边栏",
         L10nKey::PaneMoveBackToMain => "移回主区域",
         L10nKey::PaneShowHere => "在此显示",
         L10nKey::PanelAllInstances => "全部",

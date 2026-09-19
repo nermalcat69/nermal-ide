@@ -4,16 +4,15 @@ use std::rc::Rc;
 use gpui::{App, Bounds, MouseButton, MouseMoveEvent, MouseUpEvent, Pixels, Window, canvas, div};
 use gpui::{Axis, Entity, InteractiveElement as _, prelude::*, px};
 use gpui_component::button::{Button, ButtonVariants as _};
-use gpui_component::{ActiveTheme as _, IconName, Sizable as _, v_flex};
+use gpui_component::{ActiveTheme as _, IconName, Sizable as _};
 
 use crate::terminal::view::TerminalView;
 use crate::ui::i18n::{L10nKey, t};
 use crate::ui::pending_pane::PendingPane;
 
 /// The top-right "move to sidebar" button on a live terminal pane. Docking
-/// swaps this button for [`docked_elsewhere_placeholder`] here and hosts the
-/// same terminal live in the right panel instead — see
-/// `NermalApp::dock_terminal_to_sidebar`.
+/// lifts the pane out of its tab and hosts the same terminal live in the
+/// right panel instead — see `NermalApp::dock_terminal_to_sidebar`.
 fn move_to_sidebar_button(
     app: &gpui::WeakEntity<crate::ui::app::NermalApp>,
     pane_id: u64,
@@ -65,19 +64,6 @@ fn pop_out_button(
                 let _ = app.update(cx, |this, cx| this.pop_out_terminal(pane_id, window, cx));
             }),
         )
-        .into_any_element()
-}
-
-/// What a leaf shows in place of its terminal once that terminal is docked
-/// in the right panel — see [`move_to_sidebar_button`].
-fn docked_elsewhere_placeholder(cx: &App) -> gpui::AnyElement {
-    v_flex()
-        .size_full()
-        .items_center()
-        .justify_center()
-        .text_sm()
-        .text_color(cx.theme().muted_foreground)
-        .child(t(L10nKey::PaneMovedToSidebar))
         .into_any_element()
 }
 
@@ -229,12 +215,6 @@ pub(crate) struct PaneChrome {
     /// The pane being dragged, drawn faded where it came from.
     pub lifted: Option<gpui::EntityId>,
     pub drag: crate::ui::pane_drag::PaneDragState,
-    /// The terminal instance currently shown live in the right panel, by its
-    /// stable `pane_id` — not this leaf's `EntityId`, since that is what the
-    /// right panel keys on too (see [`crate::ui::right_panel::RightPanelState`]).
-    /// The leaf that owns it renders a placeholder here instead of the
-    /// terminal itself, which is rendered only in the one place at a time.
-    pub docked_terminal: Option<u64>,
     /// This window's own app entity, so a leaf can offer to dock its
     /// terminal without `Pane::render` needing a `Context<NermalApp>`.
     pub app: gpui::WeakEntity<crate::ui::app::NermalApp>,
@@ -1163,14 +1143,10 @@ impl Pane<PaneSlot> {
                     .map(|d| match v {
                         PaneSlot::Ready(t) => {
                             let pane_id = t.read(cx).pane_id;
-                            if chrome.docked_terminal == Some(pane_id) {
-                                d.child(docked_elsewhere_placeholder(cx))
-                            } else {
-                                t.update(cx, |v, _cx| v.set_dim(dim));
-                                d.child(t.clone())
-                                    .child(move_to_sidebar_button(&chrome.app, pane_id))
-                                    .child(pop_out_button(&chrome.app, pane_id))
-                            }
+                            t.update(cx, |v, _cx| v.set_dim(dim));
+                            d.child(t.clone())
+                                .child(move_to_sidebar_button(&chrome.app, pane_id))
+                                .child(pop_out_button(&chrome.app, pane_id))
                         }
                         PaneSlot::Connecting(p) => {
                             d.when(dim < 1., |d| d.opacity(dim)).child(p.clone())

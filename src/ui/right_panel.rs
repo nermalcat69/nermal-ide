@@ -319,13 +319,9 @@ pub(crate) struct RightPanelState {
     /// `EntityId` slot.
     pub(crate) docked_terminal: Option<u64>,
     /// The docked terminal's own leaf, lifted out of whatever tab held it —
-    /// `None` either because nothing is docked, or because the docked pane
-    /// was the only leaf in its tab (there is nowhere to lift it *to*
-    /// without closing the tab out from under it, so it stays put and the
-    /// tab's own render still swaps in the "moved to sidebar" placeholder).
-    /// `Some` is what makes the common case — a split with something beside
-    /// it — free the space the terminal used to occupy instead of leaving a
-    /// placeholder sitting in it.
+    /// `None` only when nothing is docked. Freeing the space the terminal
+    /// used to occupy (collapsing its split, or removing a tab it was alone
+    /// in) is what keeps a "moved to sidebar" placeholder from eating it.
     pub(crate) docked_terminal_home: Option<crate::ui::pane::PaneSlot>,
 }
 
@@ -719,10 +715,8 @@ impl NermalApp {
     /// different id puts the previous one back first (`reattach_docked_terminal`),
     /// the same way undocking does, rather than leaving it homeless.
     ///
-    /// Lifts the leaf out of its tab (see `docked_terminal_home`) whenever
-    /// that tab has something else in it — `Pane::take_leaf` refuses only
-    /// for the last leaf, which is the one case with nowhere to free the
-    /// space to.
+    /// Lifts the leaf out of its tab (see `docked_terminal_home`); when it
+    /// was the tab's only leaf the tab goes with it.
     pub(crate) fn dock_terminal_to_sidebar(
         &mut self,
         pane_id: u64,
@@ -733,14 +727,32 @@ impl NermalApp {
             self.reattach_docked_terminal(window, cx);
         }
         self.right_panel.docked_terminal = Some(pane_id);
-        self.right_panel.docked_terminal_home = self.tabs.iter_mut().find_map(|tab| {
+        let found = self.tabs.iter().enumerate().find_map(|(i, tab)| {
             let slot = tab
                 .pane
                 .leaves()
                 .into_iter()
                 .find(|l| l.terminal().is_some_and(|v| v.read(cx).pane_id == pane_id))?;
-            tab.pane.take_leaf(&slot)
+            Some((i, slot))
         });
+        if let Some((i, slot)) = found {
+            self.right_panel.docked_terminal_home = match self.tabs[i].pane.take_leaf(&slot) {
+                Some(slot) => Some(slot),
+                // The tab's only pane: an empty tab would just be a
+                // "moved to the sidebar" placeholder eating the space, so the
+                // tab leaves with it (same as `pop_out_terminal`).
+                None => {
+                    self.tabs.remove(i);
+                    if self.active > i || self.active >= self.tabs.len() {
+                        self.active = self.active.saturating_sub(1);
+                    }
+                    self.maximized = None;
+                    self.focus_active(window, cx);
+                    self.save_session(cx);
+                    Some(slot)
+                }
+            };
+        }
         self.set_right_panel_tab(RightPanelTab::Agents, cx);
         let target = self
             .right_panel_max_px(window, cx)
@@ -3597,27 +3609,21 @@ mod docked_terminal_tests {
         });
     }
 
-    /// The sole leaf in a tab has nowhere to be lifted to without closing the
-    /// tab out from under it — `Pane::take_leaf` refuses, and the dock falls
-    /// back to the placeholder path that already existed for exactly this
-    /// case (`PaneChrome::docked_terminal` in `pane.rs`).
+    /// Docking a tab's only pane takes the tab with it, so no empty
+    /// "moved to sidebar" pane is left taking up the space.
     #[gpui::test]
-    fn docking_a_tabs_only_pane_leaves_it_in_place(cx: &mut TestAppContext) {
-        let (app, mut vcx, _streams) = harness_with_tabs(cx, 1);
+    fn docking_a_tabs_only_pane_removes_the_tab(cx: &mut TestAppContext) {
+        let (app, mut vcx, _streams) = harness_with_tabs(cx, 2);
 
         app.update_in(&mut vcx, |app, window, cx| {
             app.dock_terminal_to_sidebar(1, window, cx);
         });
 
         app.read_with(&vcx, |app, _| {
-            assert_eq!(
-                app.tabs[0].pane.leaves().len(),
-                1,
-                "the only leaf in the tab must still be there"
-            );
+            assert_eq!(app.tabs.len(), 1, "the docked pane's tab must be gone");
             assert!(
-                app.right_panel.docked_terminal_home.is_none(),
-                "nothing was lifted, so there is nothing to hold"
+                app.right_panel.docked_terminal_home.is_some(),
+                "the lifted leaf is held here so undocking can restore it"
             );
             assert_eq!(app.right_panel.docked_terminal, Some(1));
         });

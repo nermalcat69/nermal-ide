@@ -8025,7 +8025,6 @@ impl Render for NermalApp {
                             hovered: self.pane_hover.clone(),
                             lifted: crate::ui::pane_drag::lifted(&self.pane_drag),
                             drag: self.pane_drag.clone(),
-                            docked_terminal: self.right_panel.docked_terminal,
                             app: cx.entity().downgrade(),
                         };
                         active_tab.pane.render(&chrome, window, cx)

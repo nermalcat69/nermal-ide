@@ -1114,7 +1114,6 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::PanelInstanceUnnamed => "Terminal",
         L10nKey::PaneMoveToSidebar => "Move to Sidebar",
         L10nKey::PanePopOut => "Open in New Window",
-        L10nKey::PaneMovedToSidebar => "Moved to the sidebar",
         L10nKey::PaneMoveBackToMain => "Move Back to Main Area",
         L10nKey::PaneShowHere => "Show Here",
         L10nKey::PanelAllInstances => "All",

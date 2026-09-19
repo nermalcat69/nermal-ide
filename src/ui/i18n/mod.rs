@@ -817,7 +817,6 @@ l10n_keys! {
     PanelInstanceUnnamed,
     PaneMoveToSidebar,
     PanePopOut,
-    PaneMovedToSidebar,
     PaneMoveBackToMain,
     PaneShowHere,
     PanelAllInstances,
