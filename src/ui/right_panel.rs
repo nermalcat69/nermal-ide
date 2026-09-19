@@ -727,6 +727,7 @@ impl NermalApp {
             self.reattach_docked_terminal(window, cx);
         }
         self.right_panel.docked_terminal = Some(pane_id);
+        self.settle_workspace_folder(cx);
         let found = self.tabs.iter().enumerate().find_map(|(i, tab)| {
             let slot = tab
                 .pane

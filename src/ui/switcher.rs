@@ -7,7 +7,9 @@ use gpui::{
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::menu::{ContextMenuExt as _, DropdownMenu as _, PopupMenuItem};
-use gpui_component::{ActiveTheme as _, Icon, IconName, Sizable as _, h_flex, v_flex};
+use gpui_component::{
+    ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _, h_flex, v_flex,
+};
 
 use nermal_core::core::machine::TabId;
 use nermal_core::core::session::{RemoteTarget, RouteSnapshot, WorkspaceId};
@@ -1309,6 +1311,23 @@ impl NermalApp {
         cx.notify();
     }
 
+    #[cfg(test)]
+    fn set_form_folder(&mut self, folder: std::path::PathBuf) {
+        if let Some(sw) = self.switcher.as_mut()
+            && let Page::Create(form) = &mut sw.page
+        {
+            form.folder = Some(folder);
+        }
+    }
+
+    /// Whether the switcher is up on its create form.
+    #[cfg(test)]
+    pub(crate) fn switcher_is_creating_workspace(&self) -> bool {
+        self.switcher
+            .as_ref()
+            .is_some_and(|sw| matches!(sw.page, Page::Create(_)))
+    }
+
     /// Opens the native folder picker and stores the pick on the form. Only
     /// meaningful for a local workspace — a remote one's root comes from the
     /// machine's home directory once it connects, not from this window's
@@ -1327,10 +1346,24 @@ impl NermalApp {
             let Some(path) = paths.pop() else {
                 return;
             };
-            let _ = this.update_in(cx, |this, _window, cx| {
+            let _ = this.update_in(cx, |this, window, cx| {
                 if let Some(sw) = this.switcher.as_mut()
                     && let Page::Create(form) = &mut sw.page
                 {
+                    // A name nobody typed follows the folder, the same way it
+                    // follows the host.
+                    let untouched = {
+                        let value = form.name.read(cx).value().trim().to_string();
+                        value.is_empty() || value == form.prefill
+                    };
+                    if untouched
+                        && let Some(base) =
+                            path.file_name().map(|n| n.to_string_lossy().into_owned())
+                    {
+                        form.prefill = base.clone();
+                        form.name
+                            .update(cx, |state, cx| state.set_value(&base, window, cx));
+                    }
                     form.folder = Some(path);
                 }
                 cx.notify();
@@ -1358,20 +1391,30 @@ impl NermalApp {
                 form.folder.clone(),
             )
         };
-        // A local workspace with nowhere to put files is the empty shell the
-        // ordinary "+" already opens — send whoever hits Enter without one
-        // straight to the picker instead of creating it half-finished.
+        // A local workspace with nowhere to put files is not a project. The
+        // Create button is disabled without a folder; Enter does the same
+        // thing rather than throwing the picker up unasked.
         if chosen.is_none() && folder.is_none() {
-            self.switcher_form_pick_folder(window, cx);
             return;
         }
         match chosen {
             None => {
+                let Some(folder) = folder else { return };
                 self.close_switcher(window, cx);
-                self.switch_workspace(None, window, cx);
-                self.name_fresh_workspace(name, window, cx);
-                if let Some(folder) = folder {
+                if cx
+                    .global::<crate::core::config::Config>()
+                    .new_workspace_same_window
+                {
+                    self.switch_workspace(None, window, cx);
+                    self.attach_folder(folder.clone(), cx);
+                    self.name_fresh_workspace(name, window, cx);
                     self.new_tab_with_cwd(Some(folder), None, window, cx);
+                } else if let Some(id) =
+                    crate::ui::windows::open_workspace_at(cx, None, Some(folder))
+                    && let Some(name) = name
+                {
+                    crate::ui::tree_sync::name_new_workspace(cx, id, name);
+                    crate::ui::windows::refresh_menu(cx);
                 }
             }
             Some(choice) => match remote_connect::HostLinks::home(cx, choice.target.host_id()) {
@@ -2831,15 +2874,42 @@ impl NermalApp {
                 false => t(L10nKey::SwitcherFormCreateHint),
             }
         };
+        let can_create = !chosen_local || form.folder.is_some();
         let footer = h_flex()
             .items_center()
+            .gap(px(8.))
             .px(px(12.))
             .py(px(8.))
             .border_t_1()
             .border_color(border)
-            .text_xs()
-            .text_color(muted)
-            .child(footer_hint);
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .text_xs()
+                    .text_color(muted)
+                    .child(footer_hint),
+            )
+            .child(
+                Button::new("switcher-form-cancel")
+                    .label(t(L10nKey::Cancel))
+                    .ghost()
+                    .small()
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.close_switcher(window, cx);
+                    })),
+            )
+            .child(
+                Button::new("switcher-form-create")
+                    .label(t(L10nKey::HomeCreateWorkspaceConfirm))
+                    .primary()
+                    .small()
+                    .disabled(!can_create)
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.switcher_form_create(window, cx);
+                    })),
+            );
 
         v_flex()
             .w(px(card_w))
@@ -4135,7 +4205,10 @@ mod gpui_tests {
         });
 
         app.update_in(&mut vcx, |app, window, cx| {
-            app.open_workspace_form(window, cx)
+            cx.global_mut::<crate::core::config::Config>()
+                .new_workspace_same_window = true;
+            app.open_workspace_form(window, cx);
+            app.set_form_folder(std::env::temp_dir());
         });
         app.update_in(&mut vcx, |app, window, cx| {
             app.switcher_form_create(window, cx)
@@ -4145,6 +4218,54 @@ mod gpui_tests {
             assert!(
                 crate::ui::windows::WindowRegistry::app_for(cx, app.workspace).is_some(),
                 "the window followed its new workspace into the registry"
+            );
+        });
+    }
+
+    /// Create is a button, and a local workspace needs a folder: Enter (or the
+    /// button) without one does nothing rather than throwing the picker up.
+    #[gpui::test]
+    fn a_local_workspace_is_not_created_without_a_folder(cx: &mut TestAppContext) {
+        let (app, mut vcx, _streams) = harness_with_tabs(cx, 1);
+        let before = app.read_with(&vcx, |app, _| app.workspace);
+        app.update_in(&mut vcx, |app, window, cx| {
+            cx.global_mut::<crate::core::config::Config>()
+                .new_workspace_same_window = true;
+            app.open_workspace_form(window, cx);
+            app.switcher_form_create(window, cx);
+        });
+        app.read_with(&vcx, |app, _| {
+            assert!(app.switcher_is_creating_workspace(), "the dialog stays up");
+            assert_eq!(app.workspace, before, "and nothing was created");
+        });
+    }
+
+    /// The folder in the dialog is the new workspace's folder: the tree roots
+    /// on it and the window is a project before any terminal reports anything.
+    #[gpui::test]
+    fn the_folder_from_the_dialog_becomes_the_workspaces_folder(cx: &mut TestAppContext) {
+        use gpui::VisualContext;
+
+        let (app, mut vcx, _streams) = harness_with_tabs(cx, 1);
+        let folder = std::env::temp_dir();
+        let handle = vcx.window_handle();
+        let weak = app.downgrade();
+        app.update(cx, |app, cx| {
+            crate::ui::windows::WindowRegistry::init(cx);
+            crate::ui::windows::WindowRegistry::register(cx, app.workspace, handle, weak);
+        });
+        app.update_in(&mut vcx, |app, window, cx| {
+            cx.global_mut::<crate::core::config::Config>()
+                .new_workspace_same_window = true;
+            app.open_workspace_form(window, cx);
+            app.set_form_folder(folder.clone());
+            app.switcher_form_create(window, cx);
+        });
+        app.read_with(&vcx, |app, _| {
+            assert!(!app.switcher_is_creating_workspace(), "the dialog closed");
+            assert_eq!(
+                app.tab_code().map(|c| c.roots.first().cloned()),
+                Some(Some(folder))
             );
         });
     }

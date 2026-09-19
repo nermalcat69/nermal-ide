@@ -1120,7 +1120,12 @@ pub(crate) fn workspace_is_disposable(cx: &App, client_ws: WorkspaceId) -> bool 
     else {
         return false;
     };
-    state.informed && matches!(&state.sync, SyncPhase::Primed(mirror) if mirror.tabs.is_empty())
+    // A workspace is its folder: with one attached it is not empty just
+    // because every terminal is gone, and forgetting it would throw the
+    // project away with them.
+    state.informed
+        && matches!(&state.sync, SyncPhase::Primed(mirror) if mirror.tabs.is_empty())
+        && !matches!(workspace_folder(cx, client_ws), Some(Some(_)))
 }
 
 pub(crate) fn mark_window_informed(cx: &mut App, client_ws: WorkspaceId) {

@@ -907,11 +907,6 @@ pub struct NermalApp {
     /// home page is otherwise perfectly still: it cost more than a live
     /// terminal did, on a window with nothing open in it.
     pub(crate) home_cursor_on: bool,
-    /// The folder chosen for a workspace being created from the home page,
-    /// while its Create/Cancel row is up. `None` means that row is not shown
-    /// at all — picking a folder is what puts it up, since there is nothing
-    /// to confirm before then.
-    pub(crate) home_new_workspace: Option<std::path::PathBuf>,
     pub(crate) shells: ShellInventory,
     pub(crate) shells_host: HostId,
     pub(crate) loopback_panel: LoopbackForwardPanelState,
@@ -1275,8 +1270,14 @@ impl NermalApp {
         // window that already has a tab, decline to adopt into it, and push
         // that one tab back as the whole workspace. So the folder travels with
         // the hydration and becomes a tab once the layout is up.
+        let folder = initial_cwd.clone();
         let open_after_hydrate = hydrate.then(|| initial_cwd.take()).flatten();
-        let app = Self::with_session_at(Some(workspace), session, initial_cwd, window, cx);
+        let mut app = Self::with_session_at(Some(workspace), session, initial_cwd, window, cx);
+        // Opening a folder is what makes it the workspace's: named here, not
+        // inferred later from whichever pane happens to report a cwd first.
+        if let Some(folder) = folder {
+            app.attach_folder(folder, cx);
+        }
         if hydrate {
             match open_after_hydrate {
                 Some(cwd) => {
@@ -1582,7 +1583,6 @@ impl NermalApp {
             record_gen: 0,
             home_focus: cx.focus_handle(),
             home_cursor_on: true,
-            home_new_workspace: None,
             shells: ShellInventory::default(),
             shells_host: HostId::LOCAL,
             loopback_panel: LoopbackForwardPanelState {
@@ -3879,11 +3879,13 @@ impl NermalApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let cwd = self.tabs.get(self.active).and_then(|t| {
-            t.pane
+        let cwd = match self.tabs.get(self.active) {
+            Some(t) => t
+                .pane
                 .focused_or_first(window, cx)
-                .and_then(|leaf| leaf.read(cx).spawnable_cwd())
-        });
+                .and_then(|leaf| leaf.read(cx).spawnable_cwd()),
+            None => self.workspace_spawn_cwd(cx),
+        };
         self.new_tab_with_cwd(cwd, shell, window, cx);
     }
 
@@ -4700,6 +4702,7 @@ impl NermalApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.settle_workspace_folder(cx);
         let Some(tab) = self.tabs.get_mut(self.active) else {
             return;
         };
@@ -4965,6 +4968,7 @@ impl NermalApp {
             self.ask_before_closing(CloseTarget::Tab(id), reason, window, cx);
             return;
         }
+        self.settle_workspace_folder(cx);
         self.maximized = None;
         let worktree_cwd = self.tab_host_cwd(index, window, cx);
         let snapshot = tab_to_session(&self.tabs[index], cx);
@@ -5708,13 +5712,7 @@ impl NermalApp {
         self.bump_command_frecency(&kind, cx);
         match kind {
             NewTab => self.new_tab(window, cx),
-            NewWorkspace => {
-                if cx.global::<Config>().new_workspace_same_window {
-                    self.switch_workspace(None, window, cx);
-                } else {
-                    self.new_window(cx);
-                }
-            }
+            NewWorkspace => self.open_workspace_form(window, cx),
             NewWindow => self.new_window(cx),
             OpenWorkspacePicker => self.open_switcher(window, cx),
             StopWorkspace => self.stop_workspace(self.workspace, window, cx),
@@ -7995,13 +7993,27 @@ impl Render for NermalApp {
             // must not also throw the editor and the right panel out, so the
             // terminal column collapses to an empty placeholder instead of
             // the whole window jumping to the dashboard.
-            None if self.document_front().is_some() || self.has_workspace_folder() => self
-                .panel_empty(
-                    t(L10nKey::TerminalPanelEmpty),
-                    Some(t(L10nKey::TerminalPanelEmptyHint)),
-                    cx,
-                )
-                .into_any_element(),
+            None if self.document_front().is_some() || self.has_workspace_folder() => {
+                use gpui_component::Sizable as _;
+                let weak = cx.entity().downgrade();
+                gpui_component::v_flex()
+                    .child(self.panel_empty(
+                        t(L10nKey::TerminalPanelEmpty),
+                        Some(t(L10nKey::TerminalPanelEmptyHint)),
+                        cx,
+                    ))
+                    .child(
+                        div().px_3().child(
+                            gpui_component::button::Button::new("empty-workspace-new-terminal")
+                                .label(t(L10nKey::CmdNewTab))
+                                .small()
+                                .on_click(move |_, window, cx| {
+                                    let _ = weak.update(cx, |this, cx| this.new_tab(window, cx));
+                                }),
+                        ),
+                    )
+                    .into_any_element()
+            }
             None => self.render_home(cx).into_any_element(),
             Some(active_tab) => {
                 let maximized = self.maximized.as_ref().filter(|leaf| {
@@ -8329,11 +8341,7 @@ impl Render for NermalApp {
                     this.delete_workspace(id, window, cx);
                 }))
                 .on_action(cx.listener(|this, _: &NewWorkspace, window, cx| {
-                    if cx.global::<Config>().new_workspace_same_window {
-                        this.switch_workspace(None, window, cx);
-                    } else {
-                        this.new_window(cx);
-                    }
+                    this.open_workspace_form(window, cx);
                 }))
                 .on_action(cx.listener(|this, _: &NewWindow, _window, cx| {
                     this.new_window(cx);

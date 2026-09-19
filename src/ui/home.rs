@@ -61,7 +61,7 @@ impl HomeAction {
 
     fn run(self, this: &mut NermalApp, window: &mut Window, cx: &mut Context<NermalApp>) {
         match self {
-            HomeAction::CreateWorkspace => this.home_open_folder(window, cx),
+            HomeAction::CreateWorkspace => this.open_workspace_form(window, cx),
             HomeAction::OpenFile => this.home_open_file(window, cx),
             HomeAction::CommandPalette => this.toggle_palette(window, cx),
             HomeAction::Settings => this.toggle_settings(window, cx),
@@ -172,64 +172,6 @@ pub(crate) fn key_hint(action: &str, cx: &App) -> Option<String> {
 }
 
 impl NermalApp {
-    /// Opens the native folder picker and parks the pick on `home_new_workspace`
-    /// rather than creating the workspace immediately — the Create row that
-    /// appears once a folder is chosen is what makes the pick reversible
-    /// (`Change` re-opens the picker, and clicking `HomeAction::CreateWorkspace`
-    /// again before confirming just re-runs this). Mirrors
-    /// `switcher.rs::switcher_form_pick_folder`, which parks the same way on
-    /// its own form for the same reason.
-    fn home_open_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let rx = cx.prompt_for_paths(gpui::PathPromptOptions {
-            files: false,
-            directories: true,
-            multiple: false,
-            prompt: None,
-        });
-        cx.spawn_in(window, async move |this, cx| {
-            let Ok(Ok(Some(mut paths))) = rx.await else {
-                return;
-            };
-            let Some(folder) = paths.pop() else {
-                return;
-            };
-            let _ = this.update_in(cx, |this, _window, cx| {
-                this.home_new_workspace = Some(folder);
-                cx.notify();
-            });
-        })
-        .detach();
-    }
-
-    /// The folder parked by `home_open_folder`, made into a new workspace.
-    ///
-    /// Which window it lands in is `Config::new_workspace_same_window`'s
-    /// call: off (the default) opens a window of its own the same way
-    /// `new_window` and the switcher's "Open in New Window" do, since this
-    /// window is showing the dashboard and closing it out from under
-    /// whoever is about to create a *second* workspace would be rude. On,
-    /// it swaps this window over in place — the same move
-    /// `reveal_workspace` makes for a workspace opened from the switcher.
-    fn commit_home_new_workspace(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(folder) = self.home_new_workspace.take() else {
-            return;
-        };
-        if cx
-            .global::<crate::core::config::Config>()
-            .new_workspace_same_window
-        {
-            self.switch_workspace(None, window, cx);
-            self.new_tab_with_cwd(Some(folder), None, window, cx);
-        } else {
-            crate::ui::windows::open_at(cx, None, Some(folder));
-        }
-    }
-
-    fn cancel_home_new_workspace(&mut self, cx: &mut Context<Self>) {
-        self.home_new_workspace = None;
-        cx.notify();
-    }
-
     /// Opens the native file picker, then opens the file in the built-in
     /// editor — a tab rooted at its parent directory hosts it, since the
     /// editor only opens against an existing tab.
@@ -341,57 +283,6 @@ impl NermalApp {
 
         let mut action_column = v_flex().gap_2().w(px(260.)).text_sm().text_color(muted);
         for action in HomeAction::ALL {
-            // A folder is already parked: the row this action normally draws
-            // becomes the Create/Change/Cancel confirmation instead of a
-            // plain, re-clickable label — clicking `CreateWorkspace` again
-            // here just re-opens the picker on `home_new_workspace`.
-            if action == HomeAction::CreateWorkspace
-                && let Some(folder) = self.home_new_workspace.clone()
-            {
-                let home = crate::ui::path_display::local_home();
-                action_column = action_column.child(
-                    v_flex()
-                        .gap_1()
-                        .child(
-                            div()
-                                .text_xs()
-                                .truncate()
-                                .child(display_path(&folder, home.as_deref())),
-                        )
-                        .child(
-                            h_flex()
-                                .gap_2()
-                                .child(
-                                    Button::new("home-new-workspace-change")
-                                        .label(t(L10nKey::HomeChangeFolder))
-                                        .ghost()
-                                        .xsmall()
-                                        .on_click(cx.listener(|this, _, window, cx| {
-                                            this.home_open_folder(window, cx)
-                                        })),
-                                )
-                                .child(
-                                    Button::new("home-new-workspace-cancel")
-                                        .label(t(L10nKey::Cancel))
-                                        .ghost()
-                                        .xsmall()
-                                        .on_click(cx.listener(|this, _, _, cx| {
-                                            this.cancel_home_new_workspace(cx)
-                                        })),
-                                )
-                                .child(
-                                    Button::new("home-new-workspace-create")
-                                        .label(t(L10nKey::HomeCreateWorkspaceConfirm))
-                                        .primary()
-                                        .xsmall()
-                                        .on_click(cx.listener(|this, _, window, cx| {
-                                            this.commit_home_new_workspace(window, cx)
-                                        })),
-                                ),
-                        ),
-                );
-                continue;
-            }
             let label = action.label();
             let keys = action
                 .keymap_action()
@@ -427,17 +318,6 @@ impl NermalApp {
             .items_center()
             .justify_center()
             .gap(px(48.))
-            // Enter is the keyboard half of the Create row above: there is no
-            // text field to carry `InputEvent::PressEnter` here, since the
-            // folder itself comes from the native picker rather than being
-            // typed, so the raw keystroke is caught on the page instead —
-            // the same way `worktree_prompt.rs` catches Escape on its own
-            // backdrop rather than routing it through a field.
-            .on_key_down(cx.listener(|this, ev: &gpui::KeyDownEvent, window, cx| {
-                if ev.keystroke.key == "enter" && this.home_new_workspace.is_some() {
-                    this.commit_home_new_workspace(window, cx);
-                }
-            }))
             .child(logo)
             .children(failure)
             .children(status)
@@ -701,95 +581,22 @@ mod new_workspace_tests {
         });
     }
 
-    /// `Cancel` on the Create row is what a folder picked by mistake, or a
-    /// picker cancelled from the OS side after all, backs out of — leaving
-    /// the row gone and nothing created.
+    /// The home page's Create button is the same dialog every other "new
+    /// workspace" gesture opens — name, host, folder and a Create button —
+    /// not a picker of its own.
     #[gpui::test]
-    fn cancelling_a_picked_folder_clears_it_without_creating_anything(cx: &mut TestAppContext) {
+    fn the_home_create_action_opens_the_new_workspace_dialog(cx: &mut TestAppContext) {
         let (app, mut vcx) = harness(cx);
-        app.update_in(&mut vcx, |app, _, cx| {
-            app.home_new_workspace = Some(std::path::PathBuf::from("/tmp"));
-            app.cancel_home_new_workspace(cx);
+        app.update_in(&mut vcx, |app, window, cx| {
+            super::HomeAction::CreateWorkspace.run(app, window, cx);
         });
         app.read_with(&vcx, |app, _| {
             assert!(
-                app.home_new_workspace.is_none(),
-                "cancel must drop the parked folder"
+                app.switcher_is_creating_workspace(),
+                "the dialog is up, and nothing was created behind it"
             );
-            assert!(app.showing_home(), "and no tab was created in its place");
+            assert!(app.showing_home());
         });
-    }
-
-    /// `Create` opens a second window for the picked folder rather than
-    /// rebinding this one — the dashboard this window is showing must still
-    /// be there afterward, ready to create another workspace, instead of
-    /// having turned into the very workspace just created. Mirrors
-    /// `app.rs`'s own `dispatching_new_window_opens_a_second_window_beside_the_first`,
-    /// which checks the same registry-backed property for the `NewWindow`
-    /// action this shares its call with.
-    #[gpui::test]
-    fn creating_a_workspace_opens_a_second_window_and_keeps_this_one_on_home(
-        cx: &mut TestAppContext,
-    ) {
-        use crate::core::config::Config;
-        use crate::core::session::Session;
-        use crate::ui::app::NermalApp;
-        use crate::ui::windows::WindowRegistry;
-        use gpui::{AppContext as _, VisualTestContext};
-
-        crate::core::config::pin_test_config_dir();
-        cx.executor().allow_parking();
-        cx.update(|cx| {
-            gpui_component::init(cx);
-            cx.set_global(Config::default());
-            crate::ui::keymap::init(cx);
-            WindowRegistry::init(cx);
-        });
-        let window = cx.add_window(|window, cx| {
-            let app =
-                cx.new(|cx| NermalApp::with_session(None, Some(Session::default()), window, cx));
-            gpui_component::Root::new(app, window, cx)
-        });
-        let app = window
-            .update(cx, |root, _, _| {
-                root.view()
-                    .clone()
-                    .downcast::<NermalApp>()
-                    .ok()
-                    .expect("window root wraps a NermalApp")
-            })
-            .unwrap();
-        // Registered the way an opened window registers itself; without it
-        // the count below cannot tell the two windows apart.
-        let handle = window.into();
-        let weak = app.downgrade();
-        app.update(cx, |app, cx| {
-            WindowRegistry::register(cx, app.workspace, handle, weak);
-        });
-
-        let mut vcx = VisualTestContext::from_window(handle, cx);
-        vcx.run_until_parked();
-        assert_eq!(
-            vcx.update(|_, cx| WindowRegistry::count(cx)),
-            1,
-            "the harness starts with exactly the one window"
-        );
-
-        app.update_in(&mut vcx, |app, window, cx| {
-            app.home_new_workspace = Some(std::env::temp_dir());
-            app.commit_home_new_workspace(window, cx);
-        });
-        vcx.run_until_parked();
-
-        assert_eq!(
-            vcx.update(|_, cx| WindowRegistry::count(cx)),
-            2,
-            "Create must open a window, not reuse this one"
-        );
-        assert!(
-            app.read_with(&vcx, |app, _| app.showing_home()),
-            "this window's own dashboard must survive creating the other workspace"
-        );
     }
 }
 

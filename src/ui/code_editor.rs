@@ -365,6 +365,63 @@ impl NermalApp {
         self.code.as_ref().is_some_and(|c| c.rooted)
     }
 
+    /// Makes `folder` this window's project. `sync_workspace_folder` writes it
+    /// to the workspace once the machine has answered, and a folder the
+    /// workspace already stores still wins over it there.
+    pub(crate) fn attach_folder(&mut self, folder: PathBuf, cx: &mut Context<Self>) {
+        let code = self.code.get_or_insert_with(|| Box::new(TabCode::new()));
+        code.roots = vec![folder];
+        for pinned in &code.pinned_roots {
+            if !code.roots.contains(pinned) {
+                code.roots.push(pinned.clone());
+            }
+        }
+        code.rooted = true;
+        self.file_tree.invalidate_all();
+        cx.notify();
+    }
+
+    /// Pins the workspace to its first pane's folder right now, for the moves
+    /// that are about to take the last pane away (close, pop out, dock). The
+    /// lazy path in `file_tree_refresh_roots` only runs while the sidebar is
+    /// drawing and the repo root has resolved, so a workspace that had not got
+    /// there yet fell back to the dashboard the moment its last terminal left.
+    pub(crate) fn settle_workspace_folder(&mut self, cx: &mut Context<Self>) {
+        if self.has_workspace_folder() {
+            return;
+        }
+        let id = self.spawn_host(cx);
+        let Some(cwd) = self
+            .tabs
+            .iter()
+            .flat_map(|t| t.pane.terminals())
+            .filter(|leaf| leaf.read(cx).host_id() == id)
+            .find_map(|leaf| leaf.read(cx).effective_cwd())
+        else {
+            return;
+        };
+        let root = self
+            .file_tree
+            .repo_roots
+            .get(id, &cwd)
+            .cloned()
+            .unwrap_or(cwd);
+        self.attach_folder(root, cx);
+    }
+
+    /// Where a terminal opened with no terminal to copy a directory from
+    /// should start: the workspace's folder, not the home directory. Local
+    /// workspaces only, the same limit `spawnable_cwd` puts on a pane's own.
+    pub(crate) fn workspace_spawn_cwd(&self, cx: &gpui::App) -> Option<PathBuf> {
+        if !self.spawn_host(cx).is_local() {
+            return None;
+        }
+        self.code
+            .as_ref()
+            .filter(|c| c.rooted)
+            .and_then(|c| c.roots.first().cloned())
+    }
+
     /// Reconciles the window's folder with the one stored on the workspace:
     /// the stored one wins (it is what survives a restart), and one found
     /// from a pane is written back once the machine has answered.
@@ -407,10 +464,10 @@ impl NermalApp {
         }
     }
 
+    /// The editor state, created if this is the first thing to ask. Needs no
+    /// tab: the editor and the tree belong to the workspace, so "Open Folder"
+    /// and revealing a file have to work in one with no terminal in it.
     pub(crate) fn tab_code_mut_or_init(&mut self) -> Option<&mut TabCode> {
-        if self.tabs.get(self.active).is_none() {
-            return None;
-        }
         Some(self.code.get_or_insert_with(|| Box::new(TabCode::new())))
     }
 

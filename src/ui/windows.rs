@@ -231,11 +231,21 @@ pub fn open_at(
     workspace: Option<WorkspaceId>,
     initial_cwd: Option<std::path::PathBuf>,
 ) {
+    open_workspace_at(cx, workspace, initial_cwd);
+}
+
+/// [`open_at`], answering with the workspace the window ended up on — what a
+/// caller that has just created one needs in order to name it.
+pub fn open_workspace_at(
+    cx: &mut App,
+    workspace: Option<WorkspaceId>,
+    initial_cwd: Option<std::path::PathBuf>,
+) -> Option<WorkspaceId> {
     if let Some(id) = workspace
         && let Some(handle) = WindowRegistry::window_for(cx, id)
     {
         let _ = handle.update(cx, |_, window, _| window.activate_window());
-        return;
+        return Some(id);
     }
 
     let options = window_options(cx, workspace);
@@ -253,17 +263,18 @@ pub fn open_at(
         Ok(handle) => handle,
         Err(e) => {
             log::error!("failed to open window: {e}");
-            return;
+            return None;
         }
     };
     let Some(app) = created else {
         log::error!("opened a window but its NermalApp was never built; not registering");
-        return;
+        return None;
     };
 
     let id = app.read(cx).workspace;
     WindowRegistry::register(cx, id, handle.into(), app.downgrade());
     refresh_menu(cx);
+    Some(id)
 }
 
 /// A named workspace is the one that gets the window: the CLI made it, knows

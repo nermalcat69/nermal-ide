@@ -781,6 +781,9 @@ impl NermalApp {
             home.display()
         );
         self.enter_remote_workspace(id, window, cx);
+        // The machine's home is the workspace's folder from the start, so its
+        // tree is up before any terminal on it has said where it is.
+        self.attach_folder(home, cx);
     }
 
     fn enter_remote_workspace(

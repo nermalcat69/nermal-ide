@@ -184,7 +184,7 @@ pub(crate) struct FileTreeState {
     /// permission-denied folder was indistinguishable from an empty one.
     unreadable: HashSet<DirKey>,
     stale: HashSet<DirKey>,
-    repo_roots: ByHost<PathBuf, PathBuf>,
+    pub(crate) repo_roots: ByHost<PathBuf, PathBuf>,
     repo_root_loads: InFlight<DirKey>,
     search: SearchState,
     pub(crate) show_hidden: bool,
@@ -3534,6 +3534,82 @@ mod render_idle_gpui_tests {
             "the folder belongs to the workspace, not to its terminals"
         );
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Popping the only terminal out into its own window empties the tab
+    /// list the same way closing it does; the project (tree, editor, sidebar)
+    /// must stay up rather than dropping to the dashboard.
+    #[gpui::test]
+    fn popping_out_the_only_terminal_keeps_the_project_up(cx: &mut TestAppContext) {
+        let _serial = serial();
+        let root = scratch("pop-out");
+        let (app, mut vcx, _pane) = files_panel_on(cx, &root);
+        app.update_in(&mut vcx, |app, window, cx| {
+            app.pop_out_terminal(1, window, cx);
+        });
+        vcx.background_executor.run_until_parked();
+        app.read_with(&vcx, |app, _| {
+            assert!(app.tabs.is_empty(), "the pane left with its tab");
+            assert!(!app.showing_home(), "but the project stays up");
+            assert_eq!(
+                app.tab_code().map(|c| c.roots.clone()),
+                Some(vec![root.clone()])
+            );
+        });
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The workspace has not named its folder yet (nothing has drawn the tree
+    /// since the pane reported its cwd) when the only terminal is popped out:
+    /// the folder is pinned on the way out instead of the window falling back
+    /// to the dashboard, and a terminal opened afterwards starts in it.
+    #[gpui::test]
+    fn popping_out_before_the_folder_was_named_still_keeps_the_project(cx: &mut TestAppContext) {
+        let _serial = serial();
+        let root = scratch("pop-out-early");
+        let (app, mut vcx, mut pane) = test_window::harness_with_pane(cx);
+        DaemonMsg::Cwd(root.clone())
+            .encode(&mut pane)
+            .expect("the pane's socket takes the cwd");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while !app.update_in(&mut vcx, |app, _, cx| {
+            app.tabs[0]
+                .pane
+                .terminals()
+                .iter()
+                .any(|t| t.read(cx).effective_cwd().is_some())
+        }) {
+            assert!(std::time::Instant::now() < deadline, "no cwd reported");
+            vcx.background_executor.run_until_parked();
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert!(!app.read_with(&vcx, |app, _| app.has_workspace_folder()));
+
+        app.update_in(&mut vcx, |app, window, cx| {
+            app.pop_out_terminal(1, window, cx);
+        });
+        app.read_with(&vcx, |app, cx| {
+            assert!(!app.showing_home(), "the project stays up");
+            assert_eq!(app.workspace_spawn_cwd(cx), Some(root.clone()));
+        });
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The editor and tree state belong to the workspace, so "Open Folder"
+    /// has somewhere to put the folder even when no terminal is open.
+    #[gpui::test]
+    fn a_workspace_with_no_terminals_can_still_open_a_folder(cx: &mut TestAppContext) {
+        let (app, mut vcx) = test_window::harness(cx);
+        app.update_in(&mut vcx, |app, _, cx| {
+            assert!(app.tabs.is_empty());
+            let code = app.tab_code_mut_or_init().expect("no tab needed");
+            code.roots = vec![PathBuf::from("/tmp/opened")];
+            code.rooted = true;
+            cx.notify();
+        });
+        app.read_with(&vcx, |app, _| {
+            assert!(!app.showing_home());
+        });
     }
 
     #[gpui::test]
