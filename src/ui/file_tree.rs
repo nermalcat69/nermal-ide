@@ -130,6 +130,9 @@ impl TreeEdit {
     }
 }
 
+/// Renders a new-entry box keeps asking for its scroll before giving up.
+const TREE_REVEAL_RENDERS_EDIT: u8 = 60;
+
 type DirKey = (HostId, PathBuf);
 
 #[derive(Default)]
@@ -190,6 +193,10 @@ pub(crate) struct FileTreeState {
     pub(crate) show_hidden: bool,
     pub(crate) editing: Option<TreeEdit>,
     editing_subs: Vec<Subscription>,
+    /// Renders left to bring a just-opened new-file/new-folder box into view.
+    /// A countdown like `tree_reveal`, for the same reason: the row it sits
+    /// under may not be laid out for a frame or three.
+    edit_scroll: Option<u8>,
     watch: Option<Arc<WatchSub>>,
     watch_host: Option<SharedHost>,
     watch_opening: bool,
@@ -230,9 +237,10 @@ impl FileTreeState {
             repo_roots: ByHost::default(),
             repo_root_loads: InFlight::default(),
             search: SearchState::default(),
-            show_hidden: false,
+            show_hidden: true,
             editing: None,
             editing_subs: Vec::new(),
+            edit_scroll: None,
             watch: None,
             watch_opening: false,
             watch_busy: false,
@@ -1297,6 +1305,8 @@ impl NermalApp {
         {
             code.expanded.insert(host_dir.clone());
         }
+        self.file_tree.edit_scroll =
+            (!matches!(edit_for, TreeEditKind::Rename)).then_some(TREE_REVEAL_RENDERS_EDIT);
         self.file_tree.editing = Some(match edit_for {
             TreeEditKind::NewFile => TreeEdit::NewFile {
                 dir: host_dir,
@@ -1771,7 +1781,15 @@ impl NermalApp {
         let reveal = self.right_panel.tree_reveal.clone();
         let mut children: Vec<AnyElement> = Vec::new();
         let mut reveal_ix = None;
-        for row in rows {
+        let slot = self.new_entry_slot(rows);
+        let mut edit_ix = None;
+        for (i, row) in rows.iter().enumerate() {
+            if let Some((at, depth)) = slot
+                && at == i
+            {
+                edit_ix = Some(children.len());
+                children.push(self.render_new_entry_box(depth));
+            }
             if row.note.is_none()
                 && reveal
                     .as_ref()
@@ -1781,6 +1799,20 @@ impl NermalApp {
             }
             let deco = row_decoration(decor, &row.entry);
             children.extend(self.render_tree_row(row, deco, window, cx));
+        }
+        if let Some((at, depth)) = slot
+            && at >= rows.len()
+        {
+            edit_ix = Some(children.len());
+            children.push(self.render_new_entry_box(depth));
+        }
+        if let (Some(ix), Some(left)) = (edit_ix, self.file_tree.edit_scroll) {
+            self.right_panel.tree_scroll.scroll_to_item(ix);
+            let landed = self.right_panel.tree_scroll.bounds_for_item(ix).is_some();
+            self.file_tree.edit_scroll = match landed {
+                true => None,
+                false => left.checked_sub(1),
+            };
         }
         let Some((path, left)) = reveal else {
             return children;
@@ -2014,31 +2046,53 @@ impl NermalApp {
                 }
             });
 
-        let mut out: Vec<AnyElement> = vec![row_el.into_any_element()];
+        vec![row_el.into_any_element()]
+    }
 
-        if let Some(edit) = &self.file_tree.editing {
-            let host_matches = match edit {
-                TreeEdit::NewFile { dir, .. } | TreeEdit::NewFolder { dir, .. } => *dir == path,
-                TreeEdit::Rename { .. } => false,
-            };
-            if host_matches {
-                let input = edit.input().clone();
-                out.push(
-                    h_flex()
-                        .items_center()
-                        .gap_1()
-                        .pl(px(ROW_INSET + (row.depth + 1) as f32 * INDENT))
-                        .pr(px(ROW_INSET))
-                        .py_0p5()
-                        // See the rename box's own comment: `.small()` matches
-                        // the row label's text size instead of clipping a
-                        // typed name at 20px/12px.
-                        .child(Input::new(&input).small())
-                        .into_any_element(),
-                );
+    /// Where the new-file / new-folder box goes among `rows`: right after the
+    /// last folder directly inside the target directory (and whatever that
+    /// folder has open beneath it), which is where a new file sorts and where
+    /// a new folder belongs. With no folder inside, straight under the
+    /// directory's own row. Answers `(index to insert before, depth)`.
+    fn new_entry_slot(&self, rows: &[TreeRow]) -> Option<(usize, usize)> {
+        let (TreeEdit::NewFile { dir, .. } | TreeEdit::NewFolder { dir, .. }) =
+            self.file_tree.editing.as_ref()?
+        else {
+            return None;
+        };
+        let at = rows
+            .iter()
+            .position(|r| r.note.is_none() && r.entry.path == *dir)?;
+        let depth = rows[at].depth;
+        let (mut slot, mut i) = (at + 1, at + 1);
+        while i < rows.len() && rows[i].depth > depth {
+            if rows[i].depth == depth + 1 && rows[i].note.is_none() && rows[i].entry.is_dir {
+                i += 1;
+                while i < rows.len() && rows[i].depth > depth + 1 {
+                    i += 1;
+                }
+                slot = i;
+            } else {
+                i += 1;
             }
         }
-        out
+        Some((slot, depth + 1))
+    }
+
+    fn render_new_entry_box(&self, depth: usize) -> AnyElement {
+        let Some(edit) = &self.file_tree.editing else {
+            return div().into_any_element();
+        };
+        h_flex()
+            .items_center()
+            .gap_1()
+            .pl(px(ROW_INSET + depth as f32 * INDENT))
+            .pr(px(ROW_INSET))
+            .py_0p5()
+            // See the rename box's own comment: `.small()` matches the row
+            // label's text size instead of clipping a typed name at 20px/12px.
+            .child(Input::new(edit.input()).small())
+            .into_any_element()
     }
 
     fn tree_row_context_menu(
@@ -3316,8 +3370,67 @@ mod render_idle_gpui_tests {
         let root = scratch("hidden");
         std::fs::write(root.join(".hidden"), "").unwrap();
         let (app, mut vcx, _pane) = files_panel_on(cx, &root);
+        app.update_in(&mut vcx, |app, _, cx| {
+            app.file_tree.show_hidden = false;
+            cx.notify();
+        });
         assert_eq!(rows(&app, &mut vcx), 1, "the dotfile is filtered out");
         assert_eq!(draws_while_idle(&mut vcx), 0);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Dotfiles (`.gitignore`, `.env.example`) are files people edit, so they
+    /// show unless the tree's own menu says otherwise.
+    #[gpui::test]
+    fn dotfiles_are_listed_by_default(cx: &mut TestAppContext) {
+        let _serial = serial();
+        let root = scratch("dotfiles-default");
+        std::fs::write(root.join(".gitignore"), "").unwrap();
+        std::fs::write(root.join(".env.example"), "").unwrap();
+        let (app, mut vcx, _pane) = files_panel_on(cx, &root);
+        assert_eq!(rows(&app, &mut vcx), 3, "the root and both dotfiles");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A new file sorts after the folders and a new folder belongs after them
+    /// too, so the box goes below the last folder in the directory — past
+    /// whatever that folder has open — and the tree scrolls to it.
+    #[gpui::test]
+    fn the_new_entry_box_sits_after_the_last_folder(cx: &mut TestAppContext) {
+        let _serial = serial();
+        let root = scratch("new-entry-slot");
+        std::fs::create_dir_all(root.join("a/inner")).unwrap();
+        std::fs::create_dir_all(root.join("b")).unwrap();
+        std::fs::write(root.join("a/inner/deep.rs"), "").unwrap();
+        std::fs::write(root.join("z.rs"), "").unwrap();
+        let (app, mut vcx, _pane) = files_panel_on(cx, &root);
+        app.update_in(&mut vcx, |app, window, cx| {
+            let code = app.tab_code_mut().expect("rooted");
+            code.expanded.insert(root.join("a"));
+            code.expanded.insert(root.join("a/inner"));
+            app.file_tree_begin_edit(TreeEditKind::NewFile, &root, true, window, cx);
+            assert!(
+                app.file_tree.edit_scroll.is_some(),
+                "opening the box asks the tree to scroll to it"
+            );
+        });
+        settle(&app, &mut vcx, &root);
+        app.update_in(&mut vcx, |app, _, _| {
+            let host_id = HostId::LOCAL;
+            let expanded = app.tab_code().unwrap().expanded.clone();
+            let rows = app
+                .file_tree
+                .visible_rows(host_id, &[root.clone()], &expanded);
+            let names: Vec<&str> = rows.iter().map(|r| r.entry.name.as_str()).collect();
+            let (at, depth) = app.new_entry_slot(&rows).expect("the box has a place");
+            assert_eq!(depth, 1);
+            assert_eq!(
+                names[at - 1],
+                "b",
+                "right after the last folder, before the files: {names:?}"
+            );
+            assert_eq!(names[at], "z.rs");
+        });
         let _ = std::fs::remove_dir_all(&root);
     }
 
