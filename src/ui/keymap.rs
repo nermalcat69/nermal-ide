@@ -303,17 +303,19 @@ fn per_platform(mac: &'static str, other: &'static str) -> &'static str {
 pub(crate) fn default_bindings() -> Vec<(&'static str, &'static str)> {
     vec![
         ("NewTab", per_platform("secondary-t", "secondary-shift-t")),
-        ("NewWorkspace", "secondary-shift-n"),
-        // Cmd+N is what "New Window" means on macOS, and nothing else here
-        // claims it. Off macOS both chords the convention offers are gone:
-        // Ctrl+N is a C0 byte the shell is owed, which
-        // `no_default_binding_sits_on_a_terminal_control_code` fails a build
-        // over, and Ctrl+Shift+N — where that same test says window actions
-        // belong — has been `NewWorkspace` for far longer than this action has
-        // existed. Minting an unguessable third chord would be worse than
-        // shipping unbound: the palette and the Keybindings page both carry
-        // this, so a key is one line of config away.
-        ("NewWindow", per_platform("secondary-n", "")),
+        // Cmd+N opens the New Workspace dialog on macOS — the chord people
+        // reach for first, and one that opened a bare window before. New
+        // Window moves to Cmd+Shift+N there. Off macOS Ctrl+N is a C0 byte the
+        // shell is owed (`no_default_binding_sits_on_a_terminal_control_code`
+        // fails a build over it), so New Workspace stays on Ctrl+Shift+N,
+        // where window actions belong, and New Window ships unbound: minting
+        // an unguessable third chord would be worse. The palette and the
+        // Keybindings page both carry it, so a key is one line of config away.
+        (
+            "NewWorkspace",
+            per_platform("secondary-n", "secondary-shift-n"),
+        ),
+        ("NewWindow", per_platform("secondary-shift-n", "")),
         ("CloseWindow", ""),
         (
             "CloseActiveTab",
@@ -1463,11 +1465,11 @@ mod tests {
         assert_eq!(
             default,
             if cfg!(target_os = "macos") {
-                "secondary-n"
+                "secondary-shift-n"
             } else {
                 ""
             },
-            "macOS gets Cmd+N; off macOS this ships unbound on purpose"
+            "macOS gets Cmd+Shift+N; off macOS this ships unbound on purpose"
         );
 
         // Ask the keymap rather than the table. A default can look bound and

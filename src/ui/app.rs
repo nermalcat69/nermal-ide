@@ -19,7 +19,7 @@ use crate::core::config::{
     ShellConfig, TabBarPosition, WindowBackdrop,
 };
 use crate::core::session::{
-    Session, SessionAxis, SessionPane, SessionTab, WorkspaceId, WorkspaceStore,
+    Session, SessionAxis, SessionPane, SessionTab, WindowViews, WorkspaceId, WorkspaceStore,
 };
 use crate::core::shells::ShellInventory;
 use crate::core::ssh_config;
@@ -1924,6 +1924,22 @@ impl NermalApp {
         // out of `cx` (as `tabs_on_screen` would) is an abort in gpui.
         let showing = self.tabs.iter().map(|t| t.tree_id.get()).collect();
         crate::ui::tree_sync::hydrate_window_with_tabs(cx, claimed, showing);
+    }
+
+    /// Gives this workspace a window of its own and leaves this one on another
+    /// workspace: the most recently used one no window is showing, or a fresh
+    /// one when every other is already up.
+    pub(crate) fn move_workspace_to_new_window(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let id = self.workspace;
+        let stay = fallback_workspace(WorkspaceStore::all(cx), id);
+        self.switch_workspace(stay, window, cx);
+        // After this window's update: opening one reads the registry, and
+        // reading an entity that is mid-update aborts the process (#617).
+        cx.defer(move |cx| crate::ui::windows::open(cx, Some(id)));
     }
 
     pub(crate) fn adopt_workspace(
@@ -7630,6 +7646,17 @@ impl NermalApp {
     }
 }
 
+/// The workspace a window keeps when `leaving` moves out: the most recently
+/// used one that is not open in a window. `None` when there is no such one.
+fn fallback_workspace(views: &WindowViews, leaving: WorkspaceId) -> Option<WorkspaceId> {
+    views
+        .views
+        .iter()
+        .filter(|w| w.id != leaving && !w.open)
+        .max_by_key(|w| w.last_active)
+        .map(|w| w.id)
+}
+
 #[cfg(test)]
 pub(crate) mod render_probe {
     use std::cell::Cell;
@@ -7990,30 +8017,11 @@ impl Render for NermalApp {
             // Zero tabs used to always mean the recent-workspaces dashboard —
             // right, for a workspace nobody has opened anything in yet. Wrong
             // once an open file is in play: killing every terminal instance
-            // must not also throw the editor and the right panel out, so the
-            // terminal column collapses to an empty placeholder instead of
-            // the whole window jumping to the dashboard.
-            None if self.document_front().is_some() || self.has_workspace_folder() => {
-                use gpui_component::Sizable as _;
-                let weak = cx.entity().downgrade();
-                gpui_component::v_flex()
-                    .child(self.panel_empty(
-                        t(L10nKey::TerminalPanelEmpty),
-                        Some(t(L10nKey::TerminalPanelEmptyHint)),
-                        cx,
-                    ))
-                    .child(
-                        div().px_3().child(
-                            gpui_component::button::Button::new("empty-workspace-new-terminal")
-                                .label(t(L10nKey::CmdNewTab))
-                                .small()
-                                .on_click(move |_, window, cx| {
-                                    let _ = weak.update(cx, |this, cx| this.new_tab(window, cx));
-                                }),
-                        ),
-                    )
-                    .into_any_element()
-            }
+            // must not also throw the editor and the right panel out. The
+            // terminal area draws nothing then — no placeholder — and the
+            // editor takes its place (see `terminal_gone` below).
+            None if self.document_front().is_some() => div().size_full().into_any_element(),
+            None if self.has_workspace_folder() => self.render_editor_empty(cx).into_any_element(),
             None => self.render_home(cx).into_any_element(),
             Some(active_tab) => {
                 let maximized = self.maximized.as_ref().filter(|leaf| {
@@ -8128,6 +8136,8 @@ impl Render for NermalApp {
         // column docked above the terminal shares its width instead, and has
         // no shortage of height to spare its own header row.
         let document_chrome = crate::ui::document_column::DocumentChrome::Dock;
+        let terminal_gone = self.tabs.is_empty();
+        let docked = document_dock_px.is_some();
         let (overlays, document_column) = match document_dock_px {
             Some(h) => (
                 Vec::new(),
@@ -8200,7 +8210,9 @@ impl Render for NermalApp {
             // show (see document_column.rs's module doc), and the two now
             // share this column's height instead of the row's width.
             .when_some(document_column, |this, column| this.child(column))
-            .child(body_area)
+            // With no terminal left the docked editor fills the column, so
+            // the area the terminal used to hold is not drawn at all.
+            .when(!(terminal_gone && docked), |this| this.child(body_area))
             .children(column_overlays);
         let panel_row = div()
             .flex_1()
@@ -8343,8 +8355,11 @@ impl Render for NermalApp {
                 .on_action(cx.listener(|this, _: &NewWorkspace, window, cx| {
                     this.open_workspace_form(window, cx);
                 }))
-                .on_action(cx.listener(|this, _: &NewWindow, _window, cx| {
-                    this.new_window(cx);
+                .on_action(cx.listener(|_this, _: &NewWindow, _window, cx| {
+                    // After this window's update, not inside it: opening a
+                    // window reads the registry, and reading an entity that is
+                    // mid-update aborts the process (#617).
+                    cx.defer(|cx| crate::ui::windows::open(cx, None));
                 }))
                 .on_action(
                     cx.listener(|this, _: &CloseWindow, window, cx| this.close_window(window, cx)),
@@ -9724,11 +9739,11 @@ mod window_drag_tests {
 mod tests {
     use super::{
         CloseReason, DOCUMENT_MIN_H, DOCUMENT_MIN_W, Dir, EDGE_CLEARANCE, Pane, Rename,
-        TERMINAL_MIN_H,
-        TERMINAL_MIN_W, TITLE_BAR_HEIGHT, Tab, TabAgentSession, clear_window_override_values,
-        close_prompt, document_column_px, join_shell_args, leaf_shares_the_window_daemon,
-        mru_order, pane_free_for, parse_ssh_connect_input, parse_ssh_option_words, rename_outcome,
-        side_panel_max, split_shell_args, strip_band, wd_path_saveable,
+        TERMINAL_MIN_H, TERMINAL_MIN_W, TITLE_BAR_HEIGHT, Tab, TabAgentSession,
+        clear_window_override_values, close_prompt, document_column_px, join_shell_args,
+        leaf_shares_the_window_daemon, mru_order, pane_free_for, parse_ssh_connect_input,
+        parse_ssh_option_words, rename_outcome, side_panel_max, split_shell_args, strip_band,
+        wd_path_saveable,
     };
     use gpui::{Edges, point, px, size};
 
@@ -12031,5 +12046,41 @@ mod tab_focus_memory_tests {
                 "and not to the first leaf"
             );
         });
+    }
+}
+
+#[cfg(test)]
+mod move_to_new_window_tests {
+    use super::fallback_workspace;
+    use crate::core::session::{WindowView, WindowViews, WorkspaceId};
+
+    fn view(open: bool, last_active: u64) -> WindowView {
+        WindowView {
+            id: WorkspaceId::new(),
+            open,
+            last_active,
+            ..WindowView::default()
+        }
+    }
+
+    #[test]
+    fn the_window_keeps_the_newest_workspace_no_window_is_showing() {
+        let (leaving, shown, old, recent) =
+            (view(true, 9), view(true, 8), view(false, 1), view(false, 5));
+        let views = WindowViews {
+            views: vec![leaving.clone(), shown, old, recent.clone()],
+            active: None,
+        };
+        assert_eq!(fallback_workspace(&views, leaving.id), Some(recent.id));
+    }
+
+    #[test]
+    fn with_every_other_workspace_in_a_window_there_is_nothing_to_keep() {
+        let (leaving, shown) = (view(true, 9), view(true, 8));
+        let views = WindowViews {
+            views: vec![leaving.clone(), shown],
+            active: None,
+        };
+        assert_eq!(fallback_workspace(&views, leaving.id), None);
     }
 }

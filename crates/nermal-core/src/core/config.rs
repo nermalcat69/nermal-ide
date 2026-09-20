@@ -303,6 +303,12 @@ pub struct Config {
     /// look like a missing window, not a feature.
     #[serde(default)]
     pub new_workspace_same_window: bool,
+    /// Where the New Workspace dialog puts projects it creates or clones.
+    /// Set only by choosing it there: opening an existing folder never
+    /// touches it, so one stray project does not become the new home for
+    /// every repo after it.
+    #[serde(default)]
+    pub projects_folder: Option<std::path::PathBuf>,
     #[serde(default = "default_true")]
     pub show_tray_icon: bool,
     #[serde(default, deserialize_with = "de_lenient")]
@@ -688,6 +694,7 @@ impl Default for Config {
             notify_threshold_secs: default_notify_threshold_secs(),
             restore_session: true,
             new_workspace_same_window: false,
+            projects_folder: None,
             show_tray_icon: true,
             bell: BellMode::Visual,
             prompt_editor: true,

@@ -1567,6 +1567,19 @@ pub fn translate_ja(key: L10nKey) -> Option<&'static str> {
         L10nKey::SwitcherFormFolderRequiredHint => {
             "ワークスペースを作成するにはフォルダーを選んでください"
         }
+        L10nKey::SwitcherFormClone => "クローン",
+        L10nKey::SwitcherFormClonePlaceholder => "GitHub の URL または owner/repo（任意）",
+        L10nKey::SwitcherFormLocation => "保存先",
+        L10nKey::SwitcherFormChooseLocation => "既定のフォルダーを選択…",
+        L10nKey::SwitcherFormLocationRequiredHint => {
+            "新しいプロジェクトの既定の保存先を選んでください"
+        }
+        L10nKey::SwitcherFormCloning => "{repo} をクローンしています…",
+        L10nKey::SwitcherFormCloneFailed => "クローンに失敗しました: {error}",
+        L10nKey::SwitcherFormCloneBad => "リポジトリのアドレスではありません: {input}",
+        L10nKey::SwitcherFormCreateFailed => "{path} を作成できません: {error}",
+        L10nKey::SwitcherFormNewWindow => "新しいウィンドウで開く",
+        L10nKey::PanelMoveToNewWindow => "新しいウィンドウに移動",
         L10nKey::SshPromptPasswordFor => "{user}@{host} のパスワード",
         L10nKey::SshPromptPassphraseFor => "{key_path} のパスフレーズ",
         L10nKey::SshPromptTwoFactor => "二要素認証",

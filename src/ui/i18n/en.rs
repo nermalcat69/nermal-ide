@@ -1504,6 +1504,19 @@ pub fn translate_en(key: L10nKey) -> &'static str {
         L10nKey::SwitcherFormFolder => "Folder",
         L10nKey::SwitcherFormChooseFolder => "Choose Folder…",
         L10nKey::SwitcherFormFolderRequiredHint => "Pick a folder to create the workspace",
+        L10nKey::SwitcherFormClone => "Clone",
+        L10nKey::SwitcherFormClonePlaceholder => "GitHub URL or owner/repo (optional)",
+        L10nKey::SwitcherFormLocation => "Save in",
+        L10nKey::SwitcherFormChooseLocation => "Choose default folder…",
+        L10nKey::SwitcherFormLocationRequiredHint => {
+            "Pick a default folder to save new projects in"
+        }
+        L10nKey::SwitcherFormCloning => "Cloning {repo}…",
+        L10nKey::SwitcherFormCloneFailed => "Clone failed: {error}",
+        L10nKey::SwitcherFormCloneBad => "Not a repository address: {input}",
+        L10nKey::SwitcherFormCreateFailed => "Could not create {path}: {error}",
+        L10nKey::SwitcherFormNewWindow => "Open in a new window",
+        L10nKey::PanelMoveToNewWindow => "Move to New Window",
         L10nKey::SshPromptPasswordFor => "Password for {user}@{host}",
         L10nKey::SshPromptPassphraseFor => "Passphrase for {key_path}",
         L10nKey::SshPromptTwoFactor => "Two-factor authentication",

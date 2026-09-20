@@ -10,17 +10,29 @@ use crate::terminal::view::TerminalView;
 use crate::ui::i18n::{L10nKey, t};
 use crate::ui::pending_pane::PendingPane;
 
+/// The plate behind a corner button. The terminal draws text right up to its
+/// edge, so a bare ghost button was unreadable over whatever it covered.
+fn button_backing(cx: &App) -> gpui::Div {
+    let theme = cx.theme();
+    div()
+        .occlude()
+        .absolute()
+        .rounded(theme.radius)
+        .border_1()
+        .border_color(theme.border)
+        .bg(theme.popover)
+}
+
 /// The top-right "move to sidebar" button on a live terminal pane. Docking
 /// lifts the pane out of its tab and hosts the same terminal live in the
 /// right panel instead — see `NermalApp::dock_terminal_to_sidebar`.
 fn move_to_sidebar_button(
     app: &gpui::WeakEntity<crate::ui::app::NermalApp>,
     pane_id: u64,
+    cx: &App,
 ) -> gpui::AnyElement {
     let app = app.clone();
-    div()
-        .occlude()
-        .absolute()
+    button_backing(cx)
         .top(px(6.))
         .right(px(6.))
         .child(
@@ -45,11 +57,10 @@ fn move_to_sidebar_button(
 fn pop_out_button(
     app: &gpui::WeakEntity<crate::ui::app::NermalApp>,
     pane_id: u64,
+    cx: &App,
 ) -> gpui::AnyElement {
     let app = app.clone();
-    div()
-        .occlude()
-        .absolute()
+    button_backing(cx)
         .top(px(6.))
         .right(px(32.))
         .child(
@@ -1145,8 +1156,8 @@ impl Pane<PaneSlot> {
                             let pane_id = t.read(cx).pane_id;
                             t.update(cx, |v, _cx| v.set_dim(dim));
                             d.child(t.clone())
-                                .child(move_to_sidebar_button(&chrome.app, pane_id))
-                                .child(pop_out_button(&chrome.app, pane_id))
+                                .child(move_to_sidebar_button(&chrome.app, pane_id, cx))
+                                .child(pop_out_button(&chrome.app, pane_id, cx))
                         }
                         PaneSlot::Connecting(p) => {
                             d.when(dim < 1., |d| d.opacity(dim)).child(p.clone())

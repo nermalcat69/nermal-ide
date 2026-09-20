@@ -307,13 +307,18 @@ impl NermalApp {
             OverlayTop::Diff => self.render_diff_overlay(chrome, window, cx),
         }?;
         let (backing, handle) = self.document_resize(body, cx);
+        // No terminal below it: the column takes the whole height, and there
+        // is no edge left to drag.
+        let fills = self.tabs.is_empty();
         Some(
             v_flex()
                 .id("document-column")
                 .relative()
-                .flex_none()
                 .w_full()
-                .h(px(height))
+                .map(|d| match fills {
+                    true => d.flex_1().min_h_0(),
+                    false => d.flex_none().h(px(height)),
+                })
                 .bg(crate::ui::theme::workspace_surface_color(cx))
                 .border_b_1()
                 .border_color(cx.theme().sidebar_border)
@@ -330,8 +335,7 @@ impl NermalApp {
                 // the panels' hangs past its side edge, and clipping the
                 // column would have taken that half — and the grab with it —
                 // away.
-                .child(backing)
-                .child(handle)
+                .when(!fills, |d| d.child(backing).child(handle))
                 .into_any_element(),
         )
     }

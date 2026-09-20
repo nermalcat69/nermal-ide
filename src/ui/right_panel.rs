@@ -839,6 +839,26 @@ impl NermalApp {
             RightPanelTab::Network => self.render_panel_network(window, cx),
         };
         let (backing, handle) = self.right_panel_resize(cx);
+        // Moving the only workspace out would leave this window with nothing
+        // to show, so the button needs a second one to exist.
+        let move_row = (crate::core::session::WorkspaceStore::all(cx).views.len() > 1).then(|| {
+            h_flex()
+                .flex_none()
+                .w_full()
+                .px(px(CONTENT_INSET))
+                .pt(px(6.))
+                .child(
+                    Button::new("right-panel-move-window")
+                        .label(t(L10nKey::PanelMoveToNewWindow))
+                        .icon(IconName::ExternalLink)
+                        .ghost()
+                        .small()
+                        .flex_1()
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.move_workspace_to_new_window(window, cx);
+                        })),
+                )
+        });
 
         Some(
             v_flex()
@@ -891,6 +911,7 @@ impl NermalApp {
                 .children(cfg!(target_os = "macos").then(|| div().flex_none().h(px(8.))))
                 .child(body)
                 .children(self.sftp_transfers_footer(cx))
+                .children(move_row)
                 .child(
                     h_flex()
                         .flex_none()

@@ -22,6 +22,7 @@ use crate::ui::app::NermalApp;
 use crate::ui::i18n::{L10nKey, t, t_fmt};
 use crate::ui::remote_connect::{self, HostChoice, RemoteWorkspaceRow};
 use crate::ui::remote_workspace::{ConnectFlow, MachineStatus, RemoteLinks};
+use gpui_component::WindowExt as _;
 
 const CARD_W: f32 = 840.0;
 
@@ -294,6 +295,76 @@ pub(crate) struct CreateForm {
     /// own root from the machine's home directory once connected (see the
     /// comment on [`PendingCreate`]), so this stays `None` there.
     folder: Option<std::path::PathBuf>,
+    /// A repository to clone into the default projects folder. Non-empty
+    /// text here wins over `folder`.
+    clone: Entity<InputState>,
+    /// Whether a local create opens a window of its own rather than
+    /// replacing this one's workspace. Starts from the setting; flipping it
+    /// here is for this create only.
+    new_window: bool,
+}
+
+/// What a local create does, in the order the form's fields win.
+enum LocalPlan {
+    Open(std::path::PathBuf),
+    Clone {
+        url: String,
+        dest: std::path::PathBuf,
+        dir: String,
+    },
+    New(std::path::PathBuf),
+}
+
+/// `(url, directory name)` for the Clone box: a GitHub `owner/repo`, or any
+/// URL git takes. Refuses what git would read as an option or a path escape.
+fn clone_target(input: &str) -> Option<(String, String)> {
+    let s = input.trim().trim_end_matches('/');
+    if s.is_empty() || s.starts_with('-') || s.contains(char::is_whitespace) {
+        return None;
+    }
+    let slug = |part: &str| {
+        !matches!(part, "" | "." | "..")
+            && part
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+    };
+    let url = match s.split_once('/') {
+        Some((owner, repo)) if slug(owner) && slug(repo) => {
+            format!("https://github.com/{owner}/{repo}.git")
+        }
+        _ if s.contains("://") || s.starts_with("git@") => s.to_string(),
+        _ => return None,
+    };
+    let last = url.rsplit(['/', ':']).next()?;
+    let dir = last.strip_suffix(".git").unwrap_or(last).to_string();
+    valid_dir_name(&dir).then_some((url, dir))
+}
+
+/// A single path component that stays inside the folder it is joined to.
+fn valid_dir_name(name: &str) -> bool {
+    !name.is_empty() && name != "." && name != ".." && !name.contains(['/', '\\', '\0'])
+}
+
+/// `git clone` with prompts off, so a private repo fails instead of hanging
+/// on a credential nobody can type.
+fn run_clone(url: &str, dest: &std::path::Path) -> Result<(), String> {
+    let out = std::process::Command::new("git")
+        .args(["clone", "--", url])
+        .arg(dest)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .stdin(std::process::Stdio::null())
+        .output()
+        .map_err(|e| e.to_string())?;
+    if out.status.success() {
+        return Ok(());
+    }
+    let err = String::from_utf8_lossy(&out.stderr);
+    Err(err
+        .lines()
+        .rev()
+        .find(|l| !l.trim().is_empty())
+        .unwrap_or("git clone failed")
+        .to_string())
 }
 
 /// A create the user asked for on a machine that was not connected yet: the
@@ -1158,9 +1229,9 @@ impl NermalApp {
         cx.notify();
     }
 
-    /// `⌘⇧N` and the footer button. Raises the switcher if it is down and
+    /// `⌘N` and the footer button. Raises the switcher if it is down and
     /// flips the card to the create form, host defaulting to this computer —
-    /// so `⌘⇧N` then Enter is still "a fresh local workspace", two keys.
+    /// so `⌘N` then Enter is still "a fresh local workspace", two keys.
     pub(crate) fn open_workspace_form(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.switcher.is_none() {
             self.open_switcher(window, cx);
@@ -1195,9 +1266,17 @@ impl NermalApp {
                 }
             },
         );
+        let clone = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(t(L10nKey::SwitcherFormClonePlaceholder))
+        });
+        let new_workspace_same_window = cx
+            .global::<crate::core::config::Config>()
+            .new_workspace_same_window;
         name.update(cx, |state, cx| state.focus(window, cx));
         if let Some(sw) = self.switcher.as_mut() {
             sw.page = Page::Create(CreateForm {
+                clone,
+                new_window: !new_workspace_same_window,
                 name,
                 host,
                 open: false,
@@ -1377,7 +1456,7 @@ impl NermalApp {
     /// parked on the app and `finish_connect` completes it, because only a
     /// live link knows the home directory a fresh workspace is rooted at.
     fn switcher_form_create(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let (name, chosen, folder) = {
+        let (name, chosen, folder, clone_text, untouched, new_window) = {
             let Some(sw) = self.switcher.as_ref() else {
                 return;
             };
@@ -1385,36 +1464,97 @@ impl NermalApp {
                 return;
             };
             let name = form.name.read(cx).value().trim().to_string();
+            let untouched = name.is_empty() || name == form.prefill;
             (
                 (!name.is_empty()).then_some(name),
                 form.chosen.clone(),
                 form.folder.clone(),
+                form.clone.read(cx).value().trim().to_string(),
+                untouched,
+                form.new_window,
             )
         };
-        // A local workspace with nowhere to put files is not a project. The
-        // Create button is disabled without a folder; Enter does the same
-        // thing rather than throwing the picker up unasked.
-        if chosen.is_none() && folder.is_none() {
-            return;
-        }
         match chosen {
             None => {
-                let Some(folder) = folder else { return };
-                self.close_switcher(window, cx);
-                if cx
+                let base = cx
                     .global::<crate::core::config::Config>()
-                    .new_workspace_same_window
+                    .projects_folder
+                    .clone();
+                let plan = if !clone_text.is_empty() {
+                    let Some((url, dir)) = clone_target(&clone_text) else {
+                        window.push_notification(
+                            t_fmt(L10nKey::SwitcherFormCloneBad, &[("input", &clone_text)]),
+                            cx,
+                        );
+                        return;
+                    };
+                    let Some(base) = base else { return };
+                    LocalPlan::Clone {
+                        url,
+                        dest: base.join(&dir),
+                        dir,
+                    }
+                } else if let Some(folder) = folder {
+                    LocalPlan::Open(folder)
+                } else if let (Some(base), Some(name)) =
+                    (base, name.as_deref().filter(|n| valid_dir_name(n)))
                 {
-                    self.switch_workspace(None, window, cx);
-                    self.attach_folder(folder.clone(), cx);
-                    self.name_fresh_workspace(name, window, cx);
-                    self.new_tab_with_cwd(Some(folder), None, window, cx);
-                } else if let Some(id) =
-                    crate::ui::windows::open_workspace_at(cx, None, Some(folder))
-                    && let Some(name) = name
-                {
-                    crate::ui::tree_sync::name_new_workspace(cx, id, name);
-                    crate::ui::windows::refresh_menu(cx);
+                    LocalPlan::New(base.join(name))
+                } else {
+                    // Nowhere to put files. The Create button is disabled in
+                    // the same case; Enter does nothing rather than throwing a
+                    // picker up unasked.
+                    return;
+                };
+                match plan {
+                    LocalPlan::Open(folder) => {
+                        self.close_switcher(window, cx);
+                        self.finish_local_create(folder, name, new_window, window, cx);
+                    }
+                    LocalPlan::New(dest) => {
+                        if let Err(e) = std::fs::create_dir_all(&dest) {
+                            window.push_notification(
+                                t_fmt(
+                                    L10nKey::SwitcherFormCreateFailed,
+                                    &[
+                                        ("path", &dest.display().to_string()),
+                                        ("error", &e.to_string()),
+                                    ],
+                                ),
+                                cx,
+                            );
+                            return;
+                        }
+                        self.close_switcher(window, cx);
+                        self.finish_local_create(dest, name, new_window, window, cx);
+                    }
+                    LocalPlan::Clone { url, dest, dir } => {
+                        self.close_switcher(window, cx);
+                        window.push_notification(
+                            t_fmt(L10nKey::SwitcherFormCloning, &[("repo", &dir)]),
+                            cx,
+                        );
+                        // A name nobody typed follows the repository.
+                        let name = if untouched { Some(dir) } else { name };
+                        let job = {
+                            let dest = dest.clone();
+                            cx.background_executor()
+                                .spawn(async move { run_clone(&url, &dest) })
+                        };
+                        cx.spawn_in(window, async move |this, cx| {
+                            let result = job.await;
+                            let _ = this.update_in(cx, |this, window, cx| match result {
+                                Ok(()) => {
+                                    this.finish_local_create(dest, name, new_window, window, cx)
+                                }
+                                Err(e) => window.push_notification(
+                                    t_fmt(L10nKey::SwitcherFormCloneFailed, &[("error", &e)]),
+                                    cx,
+                                ),
+                            });
+                        })
+                        .detach();
+                    }
                 }
             }
             Some(choice) => match remote_connect::HostLinks::home(cx, choice.target.host_id()) {
@@ -1435,6 +1575,61 @@ impl NermalApp {
                 }
             },
         }
+    }
+
+    /// Opens `folder` as a fresh local workspace, in this window or a new one.
+    fn finish_local_create(
+        &mut self,
+        folder: std::path::PathBuf,
+        name: Option<String>,
+        new_window: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !new_window {
+            self.switch_workspace(None, window, cx);
+            self.attach_folder(folder.clone(), cx);
+            self.name_fresh_workspace(name, window, cx);
+            self.new_tab_with_cwd(Some(folder), None, window, cx);
+        } else if let Some(id) = crate::ui::windows::open_workspace_at(cx, None, Some(folder))
+            && let Some(name) = name
+        {
+            crate::ui::tree_sync::name_new_workspace(cx, id, name);
+            crate::ui::windows::refresh_menu(cx);
+        }
+    }
+
+    fn switcher_form_toggle_new_window(&mut self, cx: &mut Context<Self>) {
+        if let Some(sw) = self.switcher.as_mut()
+            && let Page::Create(form) = &mut sw.page
+        {
+            form.new_window = !form.new_window;
+        }
+        cx.notify();
+    }
+
+    /// Picks the default folder new and cloned projects go in, and keeps it.
+    /// The only writer of `projects_folder`; opening an existing folder
+    /// goes through `switcher_form_pick_folder` and leaves it alone.
+    fn switcher_form_pick_location(&mut self, cx: &mut Context<Self>) {
+        let rx = cx.prompt_for_paths(gpui::PathPromptOptions {
+            files: false,
+            directories: true,
+            multiple: false,
+            prompt: None,
+        });
+        cx.spawn(async move |this, cx| {
+            let Ok(Ok(Some(mut paths))) = rx.await else {
+                return;
+            };
+            let Some(path) = paths.pop() else {
+                return;
+            };
+            let _ = this.update(cx, |this, cx| {
+                this.update_config(cx, |cfg| cfg.projects_folder = Some(path));
+            });
+        })
+        .detach();
     }
 
     /// Names the workspace this window just created and switched to.
@@ -2557,15 +2752,14 @@ impl NermalApp {
                     ),
             )
             .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
-                // One click aims the tab column at this workspace; opening it
-                // takes a second click, Enter, or the platform modifier.
+                // Clicking a workspace opens it. The tab column is for the
+                // keyboard, and for picking one tab when that is the point;
+                // making a click there mandatory was a second step for the
+                // common case. The platform modifier opens it in a new window.
                 if let Some(at) = nav_at {
                     this.switcher_point_at(at, cx);
                 }
-                let modified = ev.modifiers().secondary();
-                if ev.click_count() >= 2 || modified {
-                    this.switcher_open(click_ref.clone(), modified, window, cx);
-                }
+                this.switcher_open(click_ref.clone(), ev.modifiers().secondary(), window, cx);
             }));
 
         // A held Ctrl makes every click a right click on macOS. Drop the menu
@@ -2866,15 +3060,84 @@ impl NermalApp {
                 .child(folder_trigger)
         });
 
-        let footer_hint = if chosen_local && form.folder.is_none() {
-            t(L10nKey::SwitcherFormFolderRequiredHint)
+        // Clone and its destination are local-only for the same reason the
+        // folder is: they act on this machine's filesystem.
+        let projects_folder = cx
+            .global::<crate::core::config::Config>()
+            .projects_folder
+            .clone();
+        let clone_row = chosen_local.then(|| {
+            h_flex()
+                .items_center()
+                .gap(px(8.))
+                .child(label_col(t(L10nKey::SwitcherFormClone)))
+                .child(field(h_flex()).child(Input::new(&form.clone).appearance(false).small()))
+        });
+        let location_row = chosen_local.then(|| {
+            let trigger = field(h_flex())
+                .id("switcher-form-location")
+                .cursor_pointer()
+                .hover(move |r| r.bg(hover))
+                .child(
+                    gpui::svg()
+                        .path("icons/folder.svg")
+                        .flex_shrink_0()
+                        .size(px(12.))
+                        .text_color(muted),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .text_sm()
+                        .text_color(if projects_folder.is_some() { fg } else { muted })
+                        .child(match &projects_folder {
+                            Some(path) => path.display().to_string(),
+                            None => t(L10nKey::SwitcherFormChooseLocation).to_string(),
+                        }),
+                )
+                .on_click(cx.listener(|this, _, _window, cx| {
+                    this.switcher_form_pick_location(cx);
+                }));
+            h_flex()
+                .items_center()
+                .gap(px(8.))
+                .child(label_col(t(L10nKey::SwitcherFormLocation)))
+                .child(trigger)
+        });
+
+        let new_window_row = chosen_local.then(|| {
+            h_flex().pl(px(60.)).child(
+                gpui_component::checkbox::Checkbox::new("switcher-form-new-window")
+                    .label(t(L10nKey::SwitcherFormNewWindow))
+                    .checked(form.new_window)
+                    .on_click(
+                        cx.listener(|this, _, _w, cx| this.switcher_form_toggle_new_window(cx)),
+                    ),
+            )
+        });
+
+        // Clone text wins, then a picked folder, then a fresh directory named
+        // after the workspace inside the default folder.
+        let cloning = !form.clone.read(cx).value().trim().is_empty();
+        let named = !form.name.read(cx).value().trim().is_empty();
+        let can_create = !chosen_local
+            || match cloning {
+                true => projects_folder.is_some(),
+                false => form.folder.is_some() || (projects_folder.is_some() && named),
+            };
+        let footer_hint = if chosen_local && !can_create {
+            match cloning {
+                true => t(L10nKey::SwitcherFormLocationRequiredHint),
+                false => t(L10nKey::SwitcherFormFolderRequiredHint),
+            }
         } else {
             match form.open {
                 true => t(L10nKey::SwitcherFormPickHint),
                 false => t(L10nKey::SwitcherFormCreateHint),
             }
         };
-        let can_create = !chosen_local || form.folder.is_some();
         let footer = h_flex()
             .items_center()
             .gap(px(8.))
@@ -2926,7 +3189,10 @@ impl NermalApp {
                     .gap(px(10.))
                     .child(name_row)
                     .child(host_row)
-                    .children(folder_row),
+                    .children(clone_row)
+                    .children(location_row)
+                    .children(folder_row)
+                    .children(new_window_row),
             )
             .child(footer)
             .into_any_element()
@@ -4160,6 +4426,54 @@ mod gpui_tests {
                 "the render path drops the menus while this is set"
             );
         });
+    }
+
+    #[test]
+    fn the_clone_box_takes_slugs_and_urls_and_nothing_git_could_misread() {
+        let ok = |i: &str| super::clone_target(i);
+        assert_eq!(
+            ok("rust-lang/rust"),
+            Some((
+                "https://github.com/rust-lang/rust.git".into(),
+                "rust".into()
+            ))
+        );
+        assert_eq!(
+            ok(" https://github.com/a/b.git/ "),
+            Some(("https://github.com/a/b.git".into(), "b".into()))
+        );
+        assert_eq!(
+            ok("git@github.com:a/b.git"),
+            Some(("git@github.com:a/b.git".into(), "b".into()))
+        );
+        for bad in [
+            "",
+            "--upload-pack=x",
+            "a/b c",
+            "just-a-name",
+            "a/..",
+            "../x",
+            "x/y/z",
+        ] {
+            assert_eq!(ok(bad), None, "{bad:?}");
+        }
+    }
+
+    /// ⌘⇧N reaches `new_window` from inside the focused window's own update, so
+    /// opening the second window must not read that window's app back.
+    #[gpui::test]
+    fn new_window_from_a_registered_window_does_not_abort(cx: &mut TestAppContext) {
+        use gpui::VisualContext;
+
+        let (app, mut vcx, _streams) = harness_with_tabs(cx, 1);
+        let handle = vcx.window_handle();
+        let weak = app.downgrade();
+        app.update(cx, |app, cx| {
+            crate::ui::windows::WindowRegistry::init(cx);
+            crate::ui::windows::WindowRegistry::register(cx, app.workspace, handle, weak);
+        });
+        vcx.dispatch_action(crate::core::actions::NewWindow);
+        vcx.run_until_parked();
     }
 
     #[gpui::test]

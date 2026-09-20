@@ -85,7 +85,11 @@ pub(crate) struct TabCode {
     /// time that ran. These are folded back in on every refresh instead.
     pub(crate) pinned_roots: Vec<PathBuf>,
     pub(crate) expanded: std::collections::HashSet<PathBuf>,
+    /// The tree's cursor. Alone it is the whole selection; with `marked` it is
+    /// the end of a range that moves while `anchor` stays put.
     pub(crate) selected: Option<PathBuf>,
+    pub(crate) anchor: Option<PathBuf>,
+    pub(crate) marked: std::collections::HashSet<PathBuf>,
 }
 
 impl TabCode {
@@ -100,7 +104,16 @@ impl TabCode {
             pinned_roots: Vec::new(),
             expanded: std::collections::HashSet::new(),
             selected: None,
+            anchor: None,
+            marked: std::collections::HashSet::new(),
         }
+    }
+
+    /// Selects one path, dropping any range.
+    pub(crate) fn select(&mut self, path: Option<PathBuf>) {
+        self.selected = path;
+        self.anchor = None;
+        self.marked.clear();
     }
 
     pub(crate) fn active_file(&self) -> Option<&OpenFile> {

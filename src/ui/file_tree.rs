@@ -1058,7 +1058,7 @@ impl NermalApp {
         cx: &mut Context<Self>,
     ) {
         if let Some(code) = self.tab_code_mut() {
-            code.selected = Some(row_path.to_path_buf());
+            code.select(Some(row_path.to_path_buf()));
         }
         let searching = !self.file_search.read(cx).value().trim().is_empty();
         if is_dir && searching {
@@ -1125,7 +1125,7 @@ impl NermalApp {
         // dropped the selection on the floor there — the first reveal in a
         // session landed on a row that was expanded but not highlighted.
         if let Some(code) = self.tab_code_mut_or_init() {
-            code.selected = Some(path.to_path_buf());
+            code.select(Some(path.to_path_buf()));
         }
         self.right_panel.tree_reveal = Some((
             path.to_path_buf(),
@@ -1180,6 +1180,26 @@ impl NermalApp {
         self.reveal_file_tree_sidebar(cx);
     }
 
+    /// Selects every row from `anchor` to `cursor`, both included. The cursor
+    /// is the end that moves; the anchor is what the next extension pivots on.
+    fn file_tree_select_span(
+        &mut self,
+        rows: &[TreeRow],
+        anchor: usize,
+        cursor: usize,
+        cx: &mut Context<Self>,
+    ) {
+        let (lo, hi) = (anchor.min(cursor), anchor.max(cursor));
+        if let Some(code) = self.tab_code_mut() {
+            code.anchor = Some(rows[anchor].entry.path.clone());
+            code.selected = Some(rows[cursor].entry.path.clone());
+            code.marked = rows[lo..=hi].iter().map(|r| r.entry.path.clone()).collect();
+        }
+        // Cmd+A is also the menu's Select All; claim it so that does not fire.
+        cx.stop_propagation();
+        cx.notify();
+    }
+
     fn file_tree_key_down(
         &mut self,
         ev: &KeyDownEvent,
@@ -1206,7 +1226,29 @@ impl NermalApp {
             .as_ref()
             .and_then(|s| rows.iter().position(|r| r.entry.path == *s));
         let key = ev.keystroke.key.as_str();
+        let mods = ev.keystroke.modifiers;
+        // Not while a name is being typed: those keys belong to the field.
+        let ranging = self.file_tree.editing.is_none();
+        if ranging && key == "a" && mods.secondary() && !mods.shift {
+            self.file_tree_select_span(&rows, 0, rows.len() - 1, cx);
+            return;
+        }
         match key {
+            "up" | "down" if ranging && mods.shift => {
+                let cursor = sel_ix.unwrap_or(0);
+                let anchor = code
+                    .anchor
+                    .as_ref()
+                    .and_then(|a| rows.iter().position(|r| r.entry.path == *a))
+                    .unwrap_or(cursor);
+                let next = match (mods.secondary(), key) {
+                    (true, "up") => 0,
+                    (true, _) => rows.len() - 1,
+                    (false, "up") => cursor.saturating_sub(1),
+                    (false, _) => (cursor + 1).min(rows.len() - 1),
+                };
+                self.file_tree_select_span(&rows, anchor, next, cx);
+            }
             "up" | "down" => {
                 let next = match (sel_ix, key) {
                     (None, _) => 0,
@@ -1215,7 +1257,7 @@ impl NermalApp {
                 };
                 let path = rows[next].entry.path.clone();
                 if let Some(code) = self.tab_code_mut() {
-                    code.selected = Some(path);
+                    code.select(Some(path));
                 }
                 cx.notify();
             }
@@ -1235,7 +1277,7 @@ impl NermalApp {
                     if is_dir && expanded && !is_root {
                         code.expanded.remove(&path);
                     } else if parent_in_rows && let Some(parent) = path.parent() {
-                        code.selected = Some(parent.to_path_buf());
+                        code.select(Some(parent.to_path_buf()));
                     }
                 }
                 cx.notify();
@@ -1372,7 +1414,7 @@ impl NermalApp {
         };
         let rollback = self.file_tree.optimistic(id, &dir, &op, &row);
         if let Some(code) = self.tab_code_mut() {
-            code.selected = Some(new_path.clone());
+            code.select(Some(new_path.clone()));
         }
 
         let target = new_path.clone();
@@ -1413,7 +1455,7 @@ impl NermalApp {
                         if let Some(code) = app.tab_code_mut()
                             && code.selected.as_deref() == Some(&*new_path)
                         {
-                            code.selected = None;
+                            code.select(None);
                         }
                         HostOps::notify_err(
                             window,
@@ -1474,7 +1516,7 @@ impl NermalApp {
                 if let Some(code) = app.tab_code_mut()
                     && code.selected.as_deref() == Some(&path)
                 {
-                    code.selected = None;
+                    code.select(None);
                 }
                 let target = path.clone();
                 // "Delete failed: Permission denied" leaves out the one thing
@@ -1848,7 +1890,9 @@ impl NermalApp {
     ) -> Vec<AnyElement> {
         let path = row.entry.path.clone();
         let is_dir = row.entry.is_dir;
-        let selected = self.tab_code().and_then(|c| c.selected.as_deref()) == Some(&*path);
+        let selected = self
+            .tab_code()
+            .is_some_and(|c| c.selected.as_deref() == Some(&*path) || c.marked.contains(&path));
         let muted = cx.theme().muted_foreground;
 
         // A placeholder standing in for children that are not there. Not a
@@ -3431,6 +3475,54 @@ mod render_idle_gpui_tests {
             );
             assert_eq!(names[at], "z.rs");
         });
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Select-all takes every row; shift extends a step, and the secondary
+    /// modifier with shift runs to the end of the list. A plain arrow drops it.
+    #[gpui::test]
+    fn select_all_and_shift_arrows_mark_a_range(cx: &mut TestAppContext) {
+        let _serial = serial();
+        let root = scratch("select-range");
+        for f in ["a.rs", "b.rs", "c.rs", "d.rs"] {
+            std::fs::write(root.join(f), "").unwrap();
+        }
+        let (app, mut vcx, _pane) = files_panel_on(cx, &root);
+        let secondary = if cfg!(target_os = "macos") {
+            "cmd"
+        } else {
+            "ctrl"
+        };
+        let mut press = |keys: &str| {
+            let ev = KeyDownEvent {
+                keystroke: gpui::Keystroke::parse(&keys.replace("secondary", secondary)).unwrap(),
+                is_held: false,
+                prefer_character_input: false,
+            };
+            app.update_in(&mut vcx, |app, window, cx| {
+                app.file_tree_key_down(&ev, window, cx);
+                let code = app.tab_code().unwrap();
+                let mut marked: Vec<String> = code
+                    .marked
+                    .iter()
+                    .map(|p| p.file_name().unwrap().to_string_lossy().into())
+                    .collect();
+                marked.sort();
+                marked
+            })
+        };
+        // Root row + four files.
+        assert_eq!(press("secondary-a").len(), 5);
+        // A plain arrow drops the range; the cursor was on d.rs, so two ups
+        // land on b.rs.
+        assert!(press("up").is_empty());
+        press("up");
+        assert_eq!(press("shift-down"), ["b.rs", "c.rs"]);
+        assert_eq!(press("shift-down"), ["b.rs", "c.rs", "d.rs"]);
+        assert_eq!(press("shift-up"), ["b.rs", "c.rs"]);
+        assert_eq!(press("secondary-shift-down"), ["b.rs", "c.rs", "d.rs"]);
+        assert_eq!(press("secondary-shift-up").len(), 3, "root through b.rs");
+        assert!(press("down").is_empty());
         let _ = std::fs::remove_dir_all(&root);
     }
 
