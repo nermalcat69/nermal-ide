@@ -4,6 +4,7 @@ pub(super) const MASK_CHAR: char = '•';
 mod blink_cursor;
 mod change;
 mod clear_button;
+mod comment;
 mod cursor;
 mod display_map;
 mod element;

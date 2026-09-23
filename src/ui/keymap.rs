@@ -456,10 +456,11 @@ pub(crate) fn default_bindings() -> Vec<(&'static str, &'static str)> {
         ("PasteText", paste_text_default()),
         ("AlternatePaste", alternate_paste_default()),
         ("OpenSettings", "secondary-,"),
+        // Not `secondary-/`: the code editor takes that for toggle comment.
         (
             "ShowKeyboardShortcuts",
             if cfg!(target_os = "macos") {
-                "secondary-/"
+                "secondary-alt-/"
             } else {
                 ""
             },

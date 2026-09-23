@@ -116,6 +116,7 @@ actions!(
         ToggleCodeActions,
         Search,
         GoToDefinition,
+        ToggleComment,
     ]
 );
 
@@ -268,6 +269,10 @@ pub(crate) fn init(cx: &mut App) {
         KeyBinding::new("cmd-.", ToggleCodeActions, Some(CONTEXT)),
         #[cfg(not(target_os = "macos"))]
         KeyBinding::new("ctrl-.", ToggleCodeActions, Some(CONTEXT)),
+        #[cfg(target_os = "macos")]
+        KeyBinding::new("cmd-/", ToggleComment, Some(CONTEXT)),
+        #[cfg(not(target_os = "macos"))]
+        KeyBinding::new("ctrl-/", ToggleComment, Some(CONTEXT)),
         #[cfg(target_os = "macos")]
         KeyBinding::new("cmd-f", Search, Some(CONTEXT)),
         #[cfg(not(target_os = "macos"))]
