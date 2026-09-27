@@ -932,6 +932,10 @@ pub struct NermalApp {
     /// turned off — see `Tab::document_dismissed`'s old doc, now here for the
     /// same reason `code` is: one editor, not one per tab.
     pub(crate) document_dismissed: bool,
+    /// The editor held the focus when the window last lost activation, so
+    /// coming back hands it the focus again instead of leaving the terminal
+    /// with it.
+    editor_focus_on_return: bool,
     pub(crate) sidebar_width: Rc<Cell<f32>>,
     pub(crate) sidebar_dragging: Rc<Cell<bool>>,
     pub(crate) sidebar_scm_height: Rc<Cell<f32>>,
@@ -1466,7 +1470,14 @@ impl NermalApp {
             if window.is_window_active() {
                 WorkspaceStore::focus(cx, this.workspace);
                 this.refresh_git_status_all(cx);
+                // Deferred so it lands after anything else this activation
+                // does, but still before the click that raised the window —
+                // a click on a terminal keeps that terminal.
+                if std::mem::take(&mut this.editor_focus_on_return) {
+                    cx.defer_in(window, |this, window, cx| this.focus_editor(window, cx));
+                }
             } else {
+                this.editor_focus_on_return = this.editor_has_focus(window, cx);
                 // These only ever go true from a mouse-move this window
                 // actually received, but they have no matching "the pointer
                 // left" event to go false on: losing activation without one
@@ -1616,6 +1627,7 @@ impl NermalApp {
             code: None,
             search_panel: Default::default(),
             document_dismissed: false,
+            editor_focus_on_return: false,
             sidebar_width: Rc::new(Cell::new(sidebar_width)),
             sidebar_dragging: Rc::new(Cell::new(false)),
             sidebar_scm_height: Rc::new(Cell::new(sidebar_scm_height)),

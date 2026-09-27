@@ -1230,7 +1230,23 @@ impl NermalApp {
         // Not while a name is being typed: those keys belong to the field.
         let ranging = self.file_tree.editing.is_none();
         if ranging && key == "a" && mods.secondary() && !mods.shift {
-            self.file_tree_select_span(&rows, 0, rows.len() - 1, cx);
+            // Just the folder the cursor is in, not every expanded level
+            // above and below it.
+            let Some(ix) = sel_ix else {
+                self.file_tree_select_span(&rows, 0, rows.len() - 1, cx);
+                return;
+            };
+            let parent = rows[ix].entry.path.parent().map(Path::to_path_buf);
+            if let Some(code) = self.tab_code_mut() {
+                code.anchor = code.selected.clone();
+                code.marked = rows
+                    .iter()
+                    .filter(|r| r.entry.path.parent() == parent.as_deref())
+                    .map(|r| r.entry.path.clone())
+                    .collect();
+            }
+            cx.stop_propagation();
+            cx.notify();
             return;
         }
         match key {
@@ -1324,6 +1340,16 @@ impl NermalApp {
                 TreeEditKind::Rename => t(L10nKey::FileTreePlaceholderNewName),
             });
             st.set_value(initial, window, cx);
+            // A rename is nearly always of the name, not the `.ts` after it,
+            // so the caret starts before the extension; the arrows still
+            // reach it.
+            if matches!(edit_for, TreeEditKind::Rename)
+                && !target_is_dir
+                && let Some(stem) = target.file_stem()
+            {
+                let at = stem.to_string_lossy().chars().count() as u32;
+                st.set_cursor_position(gpui_component::input::Position::new(0, at), window, cx);
+            }
             st
         });
         input.update(cx, |st, cx| st.focus(window, cx));
@@ -1555,10 +1581,12 @@ impl NermalApp {
         .detach();
     }
 
-    /// Copy what was dropped on the tree into `dir`.
+    /// Put what was dropped on the tree into `dir`.
     ///
     /// The drop is the whole gesture: the panel does not ask where to put the
-    /// files, it puts them where the cursor was. The one question it does ask
+    /// files, it puts them where the cursor was. Things already in the
+    /// workspace — a row dragged from the tree itself — move; anything from
+    /// outside (Finder, Explorer) is copied in. The one question it does ask
     /// is about replacing something already there, and that question is asked
     /// before anything has been written.
     fn file_tree_drop_paths(
@@ -1568,7 +1596,82 @@ impl NermalApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.file_tree_copy_into(sources, dir, false, window, cx);
+        let roots = self.tab_code().map(|c| c.roots.clone()).unwrap_or_default();
+        let inside = !sources.is_empty()
+            && sources
+                .iter()
+                .all(|s| roots.iter().any(|r| s.starts_with(r)));
+        if inside {
+            self.file_tree_move_into(sources, dir, window, cx);
+        } else {
+            self.file_tree_copy_into(sources, dir, false, window, cx);
+        }
+    }
+
+    /// Moves workspace paths into `dir`. Never replaces: a name already taken
+    /// there is reported rather than overwritten, since a move has no copy
+    /// left behind to recover from.
+    fn file_tree_move_into(
+        &mut self,
+        sources: Vec<PathBuf>,
+        dir: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(host) = self.active_host(cx) else {
+            return;
+        };
+        let id = host.id();
+        // Onto its own folder, or a folder into itself, is no move at all.
+        let moves: Vec<(PathBuf, PathBuf)> = sources
+            .into_iter()
+            .filter(|s| s.parent() != Some(&*dir) && !dir.starts_with(s))
+            .filter_map(|s| {
+                let to = host.join(&dir, &s.file_name()?.to_string_lossy());
+                Some((s, to))
+            })
+            .collect();
+        if moves.is_empty() {
+            return;
+        }
+        let work = moves.clone();
+        HostOps::run_in(
+            host,
+            window,
+            cx,
+            move |h| {
+                work.iter()
+                    .filter_map(|(from, to)| {
+                        let moved = match h.stat(to) {
+                            Ok(_) => Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists)),
+                            Err(_) => h.rename(from, to),
+                        };
+                        moved.err().map(|e| (from.clone(), e))
+                    })
+                    .collect::<Vec<_>>()
+            },
+            move |app, failed: Vec<(PathBuf, std::io::Error)>, window, cx| {
+                app.file_tree.invalidate_dir(id, &dir);
+                for (from, _) in &moves {
+                    if let Some(parent) = from.parent() {
+                        app.file_tree.invalidate_dir(id, parent);
+                    }
+                }
+                if let Some((from, e)) = failed.first() {
+                    let name = from
+                        .file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_default();
+                    HostOps::notify_err(
+                        window,
+                        cx,
+                        &t_fmt(L10nKey::FileTreeRenameFailed, &[("name", &name)]),
+                        e,
+                    );
+                }
+                cx.notify();
+            },
+        );
     }
 
     fn file_tree_copy_into(

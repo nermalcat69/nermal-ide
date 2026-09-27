@@ -52,6 +52,9 @@ pub(crate) struct OpenFile {
     /// scrollbar every other scrolling surface in nermal has. The editor itself
     /// gets one from `Input`.
     pub(crate) preview_scroll: gpui::ScrollHandle,
+    /// Set for a picture, which the panel shows in place of the text editor.
+    /// Its `input` stays empty and the file is never saved from here.
+    pub(crate) image: Option<Arc<gpui::Image>>,
     _sub: Subscription,
     _observe: Subscription,
 }
@@ -267,11 +270,33 @@ fn place_cursor(
 }
 
 /// Why the built-in editor could not take a file.
+enum OpenedFile {
+    Text(String),
+    Image(Arc<gpui::Image>),
+}
+
 enum EditorOpenError {
     /// Not text, so the editor was never the right place for it.
     NotText(PathBuf),
     /// Something already worded for the user.
     Message(String),
+}
+
+/// The pictures the panel shows itself rather than handing to the desktop.
+/// SVG is left out on purpose: it is text, and editing it is the useful thing.
+fn image_format(path: &Path) -> Option<gpui::ImageFormat> {
+    use gpui::ImageFormat::*;
+    let ext = path.extension()?.to_str()?.to_ascii_lowercase();
+    Some(match ext.as_str() {
+        "png" => Png,
+        "jpg" | "jpeg" => Jpeg,
+        "webp" => Webp,
+        "gif" => Gif,
+        "bmp" => Bmp,
+        "tif" | "tiff" => Tiff,
+        "ico" => Ico,
+        _ => return None,
+    })
 }
 
 fn looks_binary(bytes: &[u8]) -> bool {
@@ -726,7 +751,7 @@ impl NermalApp {
             host.clone(),
             window,
             cx,
-            move |h| -> Result<(PathBuf, String, Option<MTime>), EditorOpenError> {
+            move |h| -> Result<(PathBuf, OpenedFile, Option<MTime>), EditorOpenError> {
                 let path = h.canonicalize(&p).unwrap_or(p);
                 let meta = match h.stat(&path) {
                     Ok(m) => m,
@@ -755,16 +780,20 @@ impl NermalApp {
                         )));
                     }
                 };
+                if let Some(format) = image_format(&path) {
+                    let image = Arc::new(gpui::Image::from_bytes(format, bytes));
+                    return Ok((path, OpenedFile::Image(image), meta.mtime));
+                }
                 if looks_binary(&bytes) {
                     return Err(EditorOpenError::NotText(path));
                 }
                 let text =
                     String::from_utf8(bytes).map_err(|_| EditorOpenError::NotText(path.clone()))?;
-                Ok((path, text, meta.mtime))
+                Ok((path, OpenedFile::Text(text), meta.mtime))
             },
             move |app, opened, window, cx| match opened {
-                Ok((path, text, mtime)) => {
-                    app.editor_install_file(host, path.clone(), text, mtime, window, cx);
+                Ok((path, opened, mtime)) => {
+                    app.editor_install_file(host, path.clone(), opened, mtime, window, cx);
                     // Against `requested`, not `path`: the host canonicalised
                     // it on the way through, and a link that named a symlink
                     // would otherwise lose the line it asked for.
@@ -851,11 +880,15 @@ impl NermalApp {
         &mut self,
         host: SharedHost,
         path: PathBuf,
-        text: String,
+        opened: OpenedFile,
         mtime: Option<MTime>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let (text, image) = match opened {
+            OpenedFile::Text(text) => (text, None),
+            OpenedFile::Image(image) => (String::new(), Some(image)),
+        };
         let host_id = host.id();
         if self.editor_activate_open(host_id, &path, window, cx) {
             return;
@@ -917,6 +950,7 @@ impl NermalApp {
                 preview: false,
                 wrap: false,
                 preview_scroll: gpui::ScrollHandle::new(),
+                image,
                 _sub: sub,
                 _observe: observe,
             },
@@ -991,7 +1025,12 @@ impl NermalApp {
         }
     }
 
-    fn focus_editor(&self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn focus_editor(&self, window: &mut Window, cx: &mut Context<Self>) {
+        // A file opened from the tree leaves the tree focused, so its keys —
+        // Cmd+A picking the folder's files, the arrows — keep working there.
+        if self.file_tree.focus_handle.is_focused(window) {
+            return;
+        }
         if let Some(f) = self.tab_code().and_then(|c| c.active_file()) {
             f.input.update(cx, |input, cx| input.focus(window, cx));
         }
@@ -1068,6 +1107,10 @@ impl NermalApp {
         let Some(f) = self.editor_file_mut(id) else {
             return;
         };
+        // Its buffer is empty; writing it would wipe the picture.
+        if f.image.is_some() {
+            return;
+        }
         f.save_then_close |= then_close;
         if f.saving.is_some() {
             f.save_pending = true;
@@ -1348,6 +1391,30 @@ impl NermalApp {
         let id = f.input.entity_id();
         f.reload_seq = f.reload_seq.wrapping_add(1);
         let seq = f.reload_seq;
+        if let Some(format) = f.image.as_ref().map(|i| i.format()) {
+            HostOps::run_in(
+                host,
+                window,
+                cx,
+                move |h| {
+                    let bytes = h.read_file(&target, MAX_FILE_BYTES)?;
+                    let mtime = h.stat(&target).ok().and_then(|m| m.mtime);
+                    Ok((Arc::new(gpui::Image::from_bytes(format, bytes)), mtime))
+                },
+                move |app, result: std::io::Result<(Arc<gpui::Image>, Option<MTime>)>, _, cx| {
+                    let Some(f) = app.editor_file_mut(id) else {
+                        return;
+                    };
+                    if let (true, Ok((image, mtime))) = (f.reload_seq == seq, result) {
+                        f.image = Some(image);
+                        f.disk_mtime = mtime;
+                        f.conflict = false;
+                        cx.notify();
+                    }
+                },
+            );
+            return;
+        }
         HostOps::run_in(
             host,
             window,
@@ -1397,6 +1464,17 @@ impl NermalApp {
         }
         let body = match self.tab_code().and_then(|c| c.active_file()) {
             None => self.render_editor_empty(cx).into_any_element(),
+            Some(OpenFile {
+                image: Some(image), ..
+            }) => div()
+                .size_full()
+                .p_4()
+                .child(
+                    gpui::img(image.clone())
+                        .size_full()
+                        .object_fit(gpui::ObjectFit::ScaleDown),
+                )
+                .into_any_element(),
             Some(f) if f.preview => {
                 let markdown = f.input.read(cx).text().to_string();
                 let scroll = f.preview_scroll.clone();
@@ -1478,6 +1556,16 @@ impl NermalApp {
                 .on_key_down(cx.listener(|this, ev: &gpui::KeyDownEvent, window, cx| {
                     if ev.keystroke.key == "escape" {
                         this.toggle_code_panel(window, cx);
+                    }
+                }))
+                // A file dropped here — from the tree or the desktop — opens
+                // in the panel, pictures included.
+                .drag_over::<gpui::ExternalPaths>(|s, _, _, cx| {
+                    s.bg(cx.theme().drag_border.opacity(0.06))
+                })
+                .on_drop(cx.listener(|this, paths: &gpui::ExternalPaths, window, cx| {
+                    for path in paths.paths() {
+                        this.open_file_in_editor(path, window, cx);
                     }
                 }))
                 .child(h_flex().flex_1().min_h_0().w_full().child(editor_col))
