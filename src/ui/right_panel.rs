@@ -695,7 +695,7 @@ impl NermalApp {
     /// The terminal currently docked in this panel, if the one it names is
     /// still open somewhere — a tab closed while its terminal was docked
     /// takes the terminal (and the dock) with it.
-    fn docked_terminal_view(
+    pub(crate) fn docked_terminal_view(
         &self,
         cx: &gpui::App,
     ) -> Option<gpui::Entity<crate::terminal::view::TerminalView>> {
@@ -2748,6 +2748,40 @@ impl NermalApp {
             }
         }
 
+        // Docked terminals are lifted clean out of `self.tabs` (see
+        // `dock_terminal_to_sidebar`), so the loop above never finds them —
+        // without this, moving an instance to the sidebar made it vanish
+        // from its own list instead of just changing where it's shown.
+        // `usize::MAX` stands in for "no tab": every `tab_index` use below
+        // is a `.get`/bounds-checked lookup, so it degrades to a no-op
+        // rather than a panic, and the kill button is special-cased to end
+        // the pane directly since there is no tab to close it through.
+        if let Some(pane_id) = self.right_panel.docked_terminal
+            && let Some(leaf) = self.docked_terminal_view(cx)
+        {
+            let view = leaf.read(cx);
+            let agent = view.agent();
+            let name = agent
+                .map(|a| a.display_name().to_string())
+                .or_else(|| {
+                    view.effective_cwd()
+                        .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+                })
+                .unwrap_or_else(|| t(L10nKey::PanelInstanceUnnamed).to_string());
+            let status = agent.and_then(|_| view.agent_session().map(|s| s.status));
+            let unread = agent.is_some() && view.agent_result_unread();
+            rows.push(InstanceRow {
+                tab_index: usize::MAX,
+                leaf: leaf.clone(),
+                name,
+                agent,
+                status,
+                unread,
+                category: None,
+                pane_id,
+            });
+        }
+
         // Every row above belongs to `self.workspace` — a window shows one
         // workspace's tabs at a time (`switch_workspace` replaces them
         // wholesale rather than layering several in). With workspace
@@ -3026,7 +3060,14 @@ impl NermalApp {
                     )
                     .on_click(cx.listener(move |this, _, window, cx| {
                         cx.stop_propagation();
-                        this.kill_instance(tab_index, kill_leaf.clone(), window, cx);
+                        // No tab to close it through — it was lifted out
+                        // when it got docked (see the docked-row comment
+                        // above).
+                        if tab_index == usize::MAX {
+                            this.kill_docked_instance(window, cx);
+                        } else {
+                            this.kill_instance(tab_index, kill_leaf.clone(), window, cx);
+                        }
                     })),
                 );
             list = list.child(

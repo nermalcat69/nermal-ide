@@ -121,14 +121,17 @@ impl NermalApp {
     /// front of it.
     pub(crate) fn document_front(&self) -> Option<OverlayTop> {
         let code = self.code.as_ref().is_some_and(|c| c.visible);
-        // No active tab means no diff overlay, and no default "open a file"
-        // empty state either — that default is what a *tab* offers, not what
-        // an empty workspace does on its own. `self.code` is window-wide
-        // (see the comment above) and stays open regardless, so a genuinely
-        // open file must still show — killing every terminal instance must
-        // not take the editor and the right panel down with it.
+        // No active tab means no diff overlay. The default "open a file"
+        // empty state is a *tab*'s to offer — except a rooted workspace
+        // (`has_workspace_folder`) is a project even with no terminal in it,
+        // and killing every terminal instance must not take the tree and
+        // the editor down with it, whether or not a file was ever explicitly
+        // opened. `self.code` is window-wide (see the comment above) and
+        // stays open regardless, so a genuinely open file must still show
+        // either way.
         let Some(tab) = self.tabs.get(self.active) else {
-            return code.then_some(OverlayTop::Code);
+            return (code || (self.has_workspace_folder() && !self.document_dismissed))
+                .then_some(OverlayTop::Code);
         };
         let diff = tab.diff_overlay.is_some();
         match (tab.overlay_top, code, diff) {

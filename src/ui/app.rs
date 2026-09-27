@@ -4264,6 +4264,23 @@ impl NermalApp {
         }
     }
 
+    /// The docked terminal's row in the Instances panel has no tab to close
+    /// it through — it was lifted out of `self.tabs` when it got docked (see
+    /// `RightPanelState::dock_terminal_to_sidebar`) — so its kill button
+    /// ends the pane directly and drops the dock instead of routing through
+    /// [`Self::kill_instance`].
+    pub(crate) fn kill_docked_instance(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(leaf) = self.docked_terminal_view(cx) else {
+            return;
+        };
+        kill_pane_off_thread(leaf.read(cx).pane_route(), leaf.read(cx).pane_id, cx);
+        self.right_panel.docked_terminal_home = None;
+        self.right_panel.docked_terminal = None;
+        self.focus_active(window, cx);
+        self.save_session(cx);
+        cx.notify();
+    }
+
     fn on_child_exited(
         &mut self,
         view: Entity<TerminalView>,

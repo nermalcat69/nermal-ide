@@ -1807,7 +1807,10 @@ impl NermalApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        if self.tabs.get(self.active).is_none() {
+        // A rooted workspace is a project even with no terminal in it (see
+        // `has_workspace_folder`'s doc) — killing every terminal instance
+        // must not empty the tree along with the tab list.
+        if self.tabs.get(self.active).is_none() && !self.has_workspace_folder() {
             return div().into_any_element();
         }
         // No search box of its own: the top bar's search input now filters
